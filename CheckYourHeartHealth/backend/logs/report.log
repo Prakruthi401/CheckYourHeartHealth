@@ -1,0 +1,9 @@
+2025-09-16 10:53:14,211 - pyswarms.backend.generators - ERROR - Bounds and/or init_pos should be of size (6,)
+Traceback (most recent call last):
+  File "C:\Users\DELL\AppData\Roaming\Python\Python313\site-packages\pyswarms\backend\generators.py", line 74, in generate_swarm
+    lb, ub = bounds
+    ^^^^^^
+ValueError: too many values to unpack (expected 2)
+2025-09-16 10:53:39,294 - pyswarms.single.global_best - INFO - Optimize for 50 iters with {'c1': 1.5, 'c2': 1.5, 'w': 0.7}
+2025-09-16 10:53:39,490 - pyswarms.single.global_best - INFO - Optimization finished | best cost: 1000.0, best pos: [2.44568048e+02 7.81571431e+00 5.65945756e+00 2.48063480e-01
+ 1.13910955e-04 2.42237164e+02]
