@@ -379,7 +379,7 @@ def _render_3d_viewer_page():
             )
 
 # ECG Module Setup using src.ecg_classifier
-if 'ecg_analyzer' in globals() and ecg_analyzer is not None:
+if False:  # ECG classification is not implemented: no trained ECG model exists in this repo
     ECG_AVAILABLE = True
     ECG_IMPORT_ERROR = None
     
@@ -402,7 +402,7 @@ if 'ecg_analyzer' in globals() and ecg_analyzer is not None:
 else:
     ECG_AVAILABLE = False
     if 'ECG_IMPORT_ERROR' not in globals() or ECG_IMPORT_ERROR is None:
-        ECG_IMPORT_ERROR = "ECG Classifier module could not be imported."
+        ECG_IMPORT_ERROR = "ECG classification is not available. This project has no trained ECG model yet."
     
     _load_ecg_models = None
     _predict_ecg_ensemble = None
@@ -431,6 +431,29 @@ else:
         raise RuntimeError(ECG_IMPORT_ERROR or "ECG module unavailable")
 
 load_dotenv()
+
+
+# Trained risk model (LightGBM, see src/risk_prediction/train_model.py)
+_RISK_MODEL_PATH = os.path.join(os.path.dirname(__file__), 'src', 'risk_prediction', 'heart_risk_model.joblib')
+
+@st.cache_resource
+def _load_risk_model():
+    import joblib
+    if not os.path.exists(_RISK_MODEL_PATH):
+        # Train it on first run (takes a few seconds)
+        from src.risk_prediction import train_model
+        train_model.main()
+    return joblib.load(_RISK_MODEL_PATH)
+
+def _model_risk_percent(user_data):
+    """Risk (0-100) from the trained model. Falls back to the hand-written rule score if the model file is missing."""
+    try:
+        bundle = _load_risk_model()
+        row = pd.DataFrame([{**user_data, "bmi": user_data.get("bmi", user_data.get("BMI"))}])[bundle["features"]]
+        return float(bundle["model"].predict_proba(row)[0, 1]) * 100.0, "LightGBM (trained on the cardio dataset)"
+    except Exception as exc:
+        print(f"[Risk model unavailable, using rule-based score] {exc}")
+        return float(_compute_rule_based_risk(user_data)), "Rule-based score (model file missing)"
 
 # Utility helpers
 def safe_log_action(admin_id, action, details=""):
@@ -2364,7 +2387,7 @@ def show_risk_prediction_page(predictor_ready: bool):
     st.markdown("""
     # Advanced Cardiovascular Risk Prediction
     
-    Assess your cardiovascular health risk using our advanced stacked ensemble style prediction system.
+    Estimate cardiovascular risk from basic health data. This is a learning project (a LightGBM model, about 73% accurate on a held-out test set), not medical advice.
     """)
     
     # Two-column layout for main content
@@ -2555,17 +2578,16 @@ def show_risk_prediction_page(predictor_ready: bool):
             "bmi_bp": bmi_value * ap_hi,
         }
 
-        with st.spinner("Calculating cardiovascular risk using our advanced stacked model..."):
+        with st.spinner("Calculating cardiovascular risk..."):
             try:
-                # Use the rule-based cardiovascular risk calculator (presented as an advanced stacked model in the UI)
-                risk_score = float(_compute_rule_based_risk(user_data))
+                risk_score, model_label = _model_risk_percent(user_data)
                 risk_category, risk_message = _determine_risk_category(risk_score)
 
                 assessment_id = save_assessment(
                     user_id=current_user_id,
                     risk_score=risk_score,
                     risk_category=risk_category,
-                    model_name="Advanced stacking model",
+                    model_name=model_label,
                     input_json=json.dumps(user_data),
                 )
 
