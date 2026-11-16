@@ -281,7 +281,7 @@ def save_ecg_assessment(user_id, predicted_label, confidence, probabilities, pat
         user_id=user_id,
         risk_score=float(max_prob) * 100.0,
         risk_category=predicted_label,
-        model_name='ECG Ensemble',
+        model_name='PTB-XL 1D-CNN (research)',
         input_json=payload,
         trigger_alerts=False
     )
