@@ -75,7 +75,6 @@ from src.database import (
     add_telehealth_message,
     get_telehealth_messages,
 )
-from src.risk_prediction.cardiovascular_risk_calculator import CardiovascularRiskCalculator
 try:
     from src.ecg_classifier import ecg_classifier as ecg_analyzer
 except Exception as _exc:
@@ -208,25 +207,13 @@ def safe_log_action(admin_id, action, details=""):
 # Initialize the database
 init_database()
 
-# Initialize the risk calculator
+# Load only the model actually used by predictions. Resource-cached across reruns.
 PREDICTOR = None
 PREDICTOR_ERROR = None
-
 try:
-    PREDICTOR = CardiovascularRiskCalculator()
-    # Load the pre-trained model
-    model_path = os.path.join(os.path.dirname(__file__), 'src', 'risk_prediction', 'best_cardiovascular_model.pth')
-    if os.path.exists(model_path):
-        PREDICTOR.load_models()  # This will load the pre-trained models
-    else:
-        PREDICTOR_ERROR = "Could not find the pre-trained model file."
-        print(PREDICTOR_ERROR)
-
-except Exception as e:
-    PREDICTOR_ERROR = f"Error initializing risk calculator: {str(e)}"
-    print(PREDICTOR_ERROR)
-    import traceback
-    traceback.print_exc()
+    PREDICTOR = _load_risk_model()
+except Exception as exc:
+    PREDICTOR_ERROR = str(exc)
 
 def _determine_risk_category(score: float):
     if score >= 40:
