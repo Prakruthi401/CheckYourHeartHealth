@@ -1,1 +1,4 @@
 __pycache__/
+heart_health.db
+heart_risk_model.joblib
+.env
