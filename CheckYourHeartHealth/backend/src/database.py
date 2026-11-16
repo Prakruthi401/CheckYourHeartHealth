@@ -1,13 +1,29 @@
 import sqlite3
 import json
 import hashlib
+import os
+import hmac
 from datetime import datetime
 
 DB_PATH = 'heart_health.db'
 
 
 def make_hashed_password(password: str) -> str:
-    return hashlib.sha256(password.encode()).hexdigest()
+    salt = os.urandom(16)
+    digest = hashlib.pbkdf2_hmac('sha256', password.encode(), salt, 300_000)
+    return 'pbkdf2_sha256$300000$' + salt.hex() + '$' + digest.hex()
+
+
+def _verify_password(password, stored):
+    if stored.startswith('pbkdf2_sha256$'):
+        try:
+            _, rounds, salt, expected = stored.split('$')
+            actual = hashlib.pbkdf2_hmac('sha256', password.encode(), bytes.fromhex(salt), int(rounds))
+            return hmac.compare_digest(actual.hex(), expected)
+        except (ValueError, TypeError):
+            return False
+    # Legacy hashes are upgraded only after a successful login.
+    return hmac.compare_digest(hashlib.sha256(password.encode()).hexdigest(), stored)
 
 
 def _get_connection():
@@ -184,8 +200,12 @@ def init_database():
 
 
 def add_user(username, password, name=None, role='patient', email=None, phone_no=None, age=None):
-    if not (isinstance(password, str) and len(password) == 6 and password.isdigit()):
-        raise ValueError("Password must be a 6-digit number")
+    if not isinstance(password, str) or len(password) < 12:
+        raise ValueError('Use a password of at least 12 characters')
+    if role not in ('patient', 'doctor', 'admin'):
+        raise ValueError('Unknown role')
+    if not username or not username.strip():
+        raise ValueError('Username is required')
 
     password_hash = make_hashed_password(password)
     conn = _get_connection()
@@ -217,9 +237,12 @@ def get_user_by_username(username):
 
 def authenticate_user(username, password):
     user = get_user_by_username(username)
-    if not user:
+    if not user or not user[9] or not _verify_password(password, user[5]):
         return None
-    return user if user[5] == make_hashed_password(password) else None
+    if not user[5].startswith('pbkdf2_sha256$'):
+        with _get_connection() as conn:
+            conn.execute('UPDATE users SET password_hash = ? WHERE id = ?', (make_hashed_password(password), user[0]))
+    return get_user_by_id(user[0])
 
 
 def get_user_by_id(user_id):
@@ -279,7 +302,7 @@ def save_ecg_assessment(user_id, predicted_label, confidence, probabilities, pat
 
     assessment_id = save_assessment(
         user_id=user_id,
-        risk_score=float(max_prob) * 100.0,
+        risk_score=None,
         risk_category=predicted_label,
         model_name='PTB-XL 1D-CNN (research)',
         input_json=payload,
@@ -306,16 +329,8 @@ def save_ecg_assessment(user_id, predicted_label, confidence, probabilities, pat
     conn.commit()
     conn.close()
     
-    # Add alert for critical ECG findings
-    if confidence > 0.30 and predicted_label not in ['Normal']:
-        # High alert for any abnormal finding exceeding 30% confidence
-        alert_message = f"Critical ECG finding detected: {predicted_label} with {confidence*100:.1f}% confidence"
-        insert_alert(user_id, assessment_id, 'high_risk', alert_message)
-    elif confidence > 0.25 and predicted_label not in ['Normal']:
-        # Medium confidence abnormal finding - create alert
-        alert_message = f"Significant ECG finding detected: {predicted_label} with {confidence*100:.1f}% confidence"
-        insert_alert(user_id, assessment_id, 'risk_increase', alert_message)
-    
+    # No threshold has been clinically validated for these research scores.
+    # Do not generate critical-finding alerts from their magnitude.
     return assessment_id
 
 
@@ -359,12 +374,13 @@ def get_ecg_assessments_for_doctor(doctor_id, limit=50):
     return rows
 
 
-def get_recent_ecg_assessments(limit=50):
+def get_recent_ecg_assessments(limit=50, full=False):
     conn = _get_connection()
     cursor = conn.cursor()
+    projection = 'ea.id, ea.assessment_id, ea.ts, ea.predicted_label, ea.confidence, ea.probabilities_json, ea.patient_summary, ea.doctor_summary, u.id, u.name, u.username' if full else 'ea.id, u.username, u.name, ea.ts, ea.predicted_label, ea.confidence'
     cursor.execute(
-        '''
-        SELECT ea.id, u.username, u.name, ea.ts, ea.predicted_label, ea.confidence
+        f'''
+        SELECT {projection}
         FROM ecg_assessments ea
         JOIN users u ON u.id = ea.user_id
         ORDER BY ea.ts DESC
@@ -719,21 +735,21 @@ def get_patients_for_doctor(doctor_id):
             (
                 SELECT risk_score
                 FROM assessments a
-                WHERE a.user_id = u.id
+                WHERE a.user_id = u.id AND a.risk_score IS NOT NULL
                 ORDER BY a.ts DESC, a.id DESC
                 LIMIT 1
             ) AS risk_score,
             (
                 SELECT risk_category
                 FROM assessments a
-                WHERE a.user_id = u.id
+                WHERE a.user_id = u.id AND a.risk_score IS NOT NULL
                 ORDER BY a.ts DESC, a.id DESC
                 LIMIT 1
             ) AS risk_category,
             (
                 SELECT ts
                 FROM assessments a
-                WHERE a.user_id = u.id
+                WHERE a.user_id = u.id AND a.risk_score IS NOT NULL
                 ORDER BY a.ts DESC, a.id DESC
                 LIMIT 1
             ) AS last_assessment_ts,
@@ -978,6 +994,7 @@ def get_recent_assessments(limit=50):
         SELECT a.id, u.username, u.name, a.ts, a.risk_score, a.risk_category, a.model_name
         FROM assessments a
         JOIN users u ON u.id = a.user_id
+        WHERE a.risk_score IS NOT NULL
         ORDER BY a.ts DESC, a.id DESC
         LIMIT ?
         ''',
@@ -1091,7 +1108,7 @@ def get_patient_history(user_id):
     cursor = conn.cursor()
     cursor.execute('''
     SELECT id, ts, input_json, risk_score, risk_category, model_name
-    FROM assessments WHERE user_id = ? ORDER BY ts DESC
+    FROM assessments WHERE user_id = ? AND risk_score IS NOT NULL ORDER BY ts DESC, id DESC
     ''', (user_id,))
     assessments = cursor.fetchall()
 
