@@ -378,57 +378,15 @@ def _render_3d_viewer_page():
                 unsafe_allow_html=True,
             )
 
-# ECG Module Setup using src.ecg_classifier
-if False:  # ECG classification is not implemented: no trained ECG model exists in this repo
-    ECG_AVAILABLE = True
-    ECG_IMPORT_ERROR = None
-    
-    def _load_ecg_models():
-        return ecg_analyzer
-
-    def _predict_ecg_ensemble(models, preprocessed_img):
-        # Return dummy prediction from ecg_analyzer
-        result = ecg_analyzer.predict_ensemble(ecg_signal=preprocessed_img)
-        return result['class'], result['confidence'], result['probabilities']['values']
-
-    def _preprocess_ecg_image(image_path):
-        # Placeholder for image preprocessing
-        return None
-
-    def _explain_ecg_prediction(models, image_path, audience):
-        # Placeholder for explainability
-        return None
-
-else:
-    ECG_AVAILABLE = False
-    if 'ECG_IMPORT_ERROR' not in globals() or ECG_IMPORT_ERROR is None:
-        ECG_IMPORT_ERROR = "ECG classification is not available. This project has no trained ECG model yet."
-    
-    _load_ecg_models = None
-    _predict_ecg_ensemble = None
-    _explain_ecg_prediction = None
-    _preprocess_ecg_image = None
-
-ECG_CLASS_NAMES = [
-    "Normal",
-    "Myocardial Infarction",
-    "Arrhythmia",
-    "Left Ventricular Hypertrophy",
-    "Bundle Branch Block",
-]
-ECG_PAGE_LABEL = "ECG Classification"
-ECG_REVIEW_LABEL = "ECG Review"
-THREE_D_PAGE_LABEL = "3D Heart Viewer"
-GA_FEATURE_ANALYSIS_LABEL = "GA Feature Analysis"
-ECG_ANALYSIS_LABEL = "ECG Analysis"
-
-if ECG_AVAILABLE:
-    @st.cache_resource
-    def _get_cached_ecg_models():
-        return _load_ecg_models()
-else:
-    def _get_cached_ecg_models():
-        raise RuntimeError(ECG_IMPORT_ERROR or "ECG module unavailable")
+# The signal model loads lazily when a valid ECG is uploaded.
+ECG_AVAILABLE = ecg_analyzer is not None
+ECG_IMPORT_ERROR = None if ECG_AVAILABLE else globals().get('ECG_IMPORT_ERROR', 'ECG import failed')
+ECG_CLASS_NAMES = ['NORM', 'MI', 'STTC', 'CD', 'HYP']
+ECG_PAGE_LABEL = 'ECG Classification'
+ECG_REVIEW_LABEL = 'ECG Review'
+THREE_D_PAGE_LABEL = '3D Heart Viewer'
+GA_FEATURE_ANALYSIS_LABEL = 'GA Feature Analysis'
+ECG_ANALYSIS_LABEL = 'ECG Analysis'
 
 load_dotenv()
 
@@ -2019,23 +1977,35 @@ A {result['class'].lower()} was detected. Please review the full recording and c
         """)
 
 def _render_ecg_page(role_lower: str):
-    """Render the ECG Classification page with enhanced UI and explanations."""
-    st.markdown(
-        """
-        <div style='text-align: center; margin-bottom: 2rem;'>
-            <h1 style='color: #ff6b6b; margin-bottom: 0.5rem;'>ECG Heart Disease Classification System</h1>
-            <p style='color: #ddd;'>Upload an ECG image for detailed analysis</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    
-    # Render the standard ECG analysis
-    _render_standard_ecg_analysis(role_lower)
-        
-    # Add explanation section if we have a prediction
-    if st.session_state.get('ecg_prediction'):
-        _render_explanation_section(role_lower)
+    st.header('ECG signal classification')
+    st.warning('Research demo only. These scores are not a diagnosis, and do not rule out heart disease. Do not use this app for urgent symptoms.')
+    st.caption('1D-CNN trained on PTB-XL 1.0.3. Official patient-wise folds 1-8 / 9 / 10. Held-out macro AUC: 0.930. This is not 93% accuracy.')
+    st.write('Upload a 10-second, 100 Hz, 12-lead signal in millivolts. CSV must have 1000 rows and the lead columns below. Photos and scans are not supported.')
+    from src.ecg_classifier import LEADS
+    st.code(','.join(LEADS))
+    st.caption('Classes: NORM = normal ECG pattern, MI = myocardial infarction pattern, STTC = ST/T change, CD = conduction disturbance, HYP = hypertrophy pattern. Labels can overlap.')
+    uploaded = st.file_uploader('12-lead signal CSV', type=['csv'])
+    if uploaded is not None:
+        try:
+            frame = pd.read_csv(uploaded)
+            frame.columns = [str(c).strip().upper() for c in frame.columns]
+            if len(frame) != 1000 or set(frame.columns) != set(LEADS) or len(frame.columns) != 12:
+                raise ValueError('CSV must have exactly 1000 rows and 12 named lead columns, with no timestamp or index column.')
+            signal = frame[LEADS].to_numpy(dtype='float32')
+            st.line_chart(pd.DataFrame({'Lead II (mV)':signal[:,1]}, index=np.arange(1000)/100))
+            if st.button('Analyze ECG signal'):
+                scores = ecg_analyzer.predict(signal)
+                st.subheader('Model scores')
+                st.bar_chart(pd.DataFrame({'Score': scores}))
+                st.caption('Independent sigmoid scores, not percentages of certainty. They need not add to 1. No clinical threshold or calibration was validated.')
+                top = max(scores, key=scores.get)
+                uid = st.session_state.get('user_id')
+                if uid:
+                    save_ecg_assessment(uid, 'Top score: '+top, scores[top], scores, patient_summary='Research-only multi-label CNN scores. Not a diagnosis.')
+                    st.success('Saved to your ECG history.')
+        except Exception as exc:
+            st.error(str(exc))
+
 
 def _render_explanation_section(role_lower: str):
     """Render the explanation section with audience-specific details."""
@@ -2157,249 +2127,7 @@ def _get_clinical_notes(condition: str) -> str:
     return notes.get(condition, "No specific clinical notes available. Use clinical judgment for further evaluation.")
 
 def _render_standard_ecg_analysis(role_lower: str):
-    """Render the standard ECG image analysis interface with enhanced features."""
-    st.header("ECG Image Analysis")
-    st.write("Upload an ECG image (JPG/PNG) for automated analysis.")
-    
-    # Initialize session state for prediction results
-    if 'ecg_prediction' not in st.session_state:
-        st.session_state.ecg_prediction = None
-    
-    ecg_ready = not (ECG_IMPORT_ERROR or not ECG_AVAILABLE)
-    models = None
-    backend_error = None
-    
-    # Initialize session state for MIT-BIH if not exists
-    if 'show_mitbih_analysis' not in st.session_state:
-        st.session_state.show_mitbih_analysis = False
-    
-    ecg_ready = not (ECG_IMPORT_ERROR or not ECG_AVAILABLE)
-    models = None
-    backend_error = None
-
-    if ecg_ready:
-        try:
-            models = _get_cached_ecg_models()
-        except Exception as exc:
-            backend_error = f"ECG models could not be loaded: {exc}"
-            ecg_ready = False
-
-    if _preprocess_ecg_image is None or _predict_ecg_ensemble is None:
-        backend_error = "ECG classification backend is not available in this environment."
-        ecg_ready = False
-
-    status_col1, status_col2 = st.columns(2)
-    with status_col1:
-        st.metric("ECG Engine", "Ready" if ecg_ready else "Unavailable")
-    with status_col2:
-        st.metric(
-            "Model Suite",
-            "EfficientNet • Custom CNN • Random Forest" if ecg_ready else "Requires PyTorch setup",
-        )
-
-    with st.expander("How ECG Image Analysis works", expanded=False):
-        st.markdown(
-            """
-            1. Upload a high-quality ECG snapshot (PNG/JPG).
-            2. Our ensemble evaluates five diagnostic classes with confidence scores.
-            3. Explainability highlights patient guidance and clinician insights.
-            
-             """
-        )
-
-    if not ecg_ready:
-        fallback_message = (
-            backend_error
-            or "ECG classification models are not available in this environment. Install the PyTorch-based ECG ensemble under `ECG Heart Disease Classification System` to enable this feature."
-        )
-        st.warning(fallback_message)
-
-    audience = "doctor" if role_lower == "doctor" else "patient"
-
-    uploaded_file = st.file_uploader(
-        "Upload an ECG image (PNG/JPG)",
-        type=["png", "jpg", "jpeg"],
-        key="ecg_file_uploader",
-    )
-
-    if uploaded_file is None:
-        st.info("Please upload an ECG image to analyze." if ecg_ready else "Upload the ECG image to analyze once the backend is ready.")
-        return
-
-    analyze = st.button(
-        "Analyze ECG",
-        key="ecg_analyze_button",
-        disabled=not ecg_ready,
-        help=None if ecg_ready else "ECG backend is unavailable. Configure the PyTorch ensemble to enable analysis.",
-    )
-    if not analyze:
-        return
-
-    if not ecg_ready or models is None:
-        st.error("ECG analysis is currently unavailable. Please configure the backend models and retry.")
-        return
-
-    with st.spinner("Analyzing ECG recording with ensemble model..."):
-        suffix = os.path.splitext(uploaded_file.name)[1] or ".png"
-        tmp = tempfile.NamedTemporaryFile(delete=False, suffix=suffix)
-        try:
-            tmp.write(uploaded_file.getbuffer())
-            tmp.close()
-            image_path = tmp.name
-
-            try:
-                preprocessed_img = _preprocess_ecg_image(image_path=image_path)
-            except Exception as exc:
-                st.error(f"Could not preprocess ECG image: {exc}")
-                return
-
-            try:
-                predicted_label, confidence, probabilities = _predict_ecg_ensemble(models, preprocessed_img)
-            except Exception as exc:
-                st.error(f"ECG prediction failed: {exc}")
-                return
-
-            st.subheader("Prediction Result")
-            result_col1, result_col2 = st.columns(2)
-            with result_col1:
-                st.metric("Predicted Class", predicted_label)
-            with result_col2:
-                st.metric("Confidence", f"{float(confidence) * 100:.1f}%")
-
-            prob_list = [float(p) for p in np.asarray(probabilities).flatten()]
-            probability_map = {
-                (ECG_CLASS_NAMES[i] if i < len(ECG_CLASS_NAMES) else f"class_{i}"): prob
-                for i, prob in enumerate(prob_list)
-            }
-
-            prob_df = pd.DataFrame({
-                "Class": list(probability_map.keys()),
-                "Probability": list(probability_map.values()),
-            })
-            st.subheader("Class Probabilities")
-            st.bar_chart(prob_df.set_index("Class"))
-
-            patient_explanation = None
-            doctor_explanation = None
-
-            if _explain_ecg_prediction:
-                try:
-                    patient_explanation = _explain_ecg_prediction(
-                        models=models,
-                        image_path=image_path,
-                        audience="patient",
-                    )
-                except Exception as exc:
-                    patient_explanation = None
-                    st.warning(f"Patient-facing explanation unavailable: {exc}")
-
-                try:
-                    doctor_explanation = _explain_ecg_prediction(
-                        models=models,
-                        image_path=image_path,
-                        audience="doctor",
-                    )
-                except Exception as exc:
-                    doctor_explanation = None
-                    if role_lower in ("doctor", "admin"):
-                        st.warning(f"Clinician explanation unavailable: {exc}")
-
-            explanation_for_display = doctor_explanation if role_lower == "doctor" else patient_explanation
-
-            if explanation_for_display:
-                if role_lower == "doctor":
-                    st.subheader("Clinical Insights")
-                    clinical_context = explanation_for_display.get("clinical_context")
-                    if clinical_context:
-                        st.write(f"**Clinical Context:** {clinical_context}")
-                    
-                    # Add detailed disease explanation
-                    disease_explanation = explanation_for_display.get("disease_explanation", {})
-                    if disease_explanation:
-                        st.markdown("**Disease Explanation**")
-                        st.write(f"**Description:** {disease_explanation.get('description', '')}")
-                        
-                        causes = disease_explanation.get('causes', [])
-                        if causes:
-                            st.write("**Common Causes:**")
-                            for cause in causes:
-                                st.write(f"- {cause}")
-                        
-                        symptoms = disease_explanation.get('symptoms', [])
-                        if symptoms:
-                            st.write("**Common Symptoms:**")
-                            for symptom in symptoms:
-                                st.write(f"- {symptom}")
-                        
-                        why_detected = disease_explanation.get('why_detected', '')
-                        if why_detected:
-                            st.write(f"**Why This Was Detected:** {why_detected}")
-                    
-                    confidence_interval = explanation_for_display.get("confidence_interval")
-                    if confidence_interval:
-                        st.write(f"**Confidence Interval:** {confidence_interval}")
-                    probability_details = explanation_for_display.get("probabilities")
-                    if probability_details:
-                        st.markdown("**Detailed Probabilities**")
-                        st.table(pd.DataFrame(
-                            [(k, v) for k, v in probability_details.items()],
-                            columns=["Class", "Probability"]
-                        ))
-                    shap_plot_path = explanation_for_display.get("shap_plot")
-                    if shap_plot_path and os.path.exists(shap_plot_path):
-                        st.image(shap_plot_path, caption="SHAP Feature Importance", use_container_width=True)
-                    feature_importance = explanation_for_display.get("feature_importance")
-                    if isinstance(feature_importance, dict) and feature_importance:
-                        st.markdown("**Top Feature Drivers**")
-                        fi_df = pd.DataFrame(
-                            list(feature_importance.items()),
-                            columns=["Feature", "Importance"]
-                        ).head(10)
-                        st.table(fi_df)
-                    lime_explanation = explanation_for_display.get("lime_explanation")
-                    if lime_explanation:
-                        st.markdown("**LIME Highlights**")
-                        st.write(lime_explanation)
-                    limitations = explanation_for_display.get("model_limitations")
-                    if limitations:
-                        st.caption(f"Model Notes: {limitations}")
-                else:
-                    st.subheader("Personal Guidance")
-                    summary = explanation_for_display.get("summary")
-                    if summary:
-                        st.write(summary)
-                    
-                    # Add "What It Means" section
-                    what_it_means = explanation_for_display.get("what_it_means")
-                    if what_it_means:
-                        st.markdown("**What This Means For You:**")
-                        st.write(what_it_means)
-                    
-                    guidance = explanation_for_display.get("guidance")
-                    if guidance:
-                        st.info(guidance)
-                    probability_bar = explanation_for_display.get("probability_bar")
-                    if probability_bar and os.path.exists(probability_bar):
-                        st.image(probability_bar, caption="Probability Breakdown", use_container_width=True)
-
-            try:
-                save_ecg_assessment(
-                    user_id=st.session_state.get("user_id"),
-                    predicted_label=predicted_label,
-                    confidence=float(confidence),
-                    probabilities=probability_map,
-                    patient_summary=json.dumps(patient_explanation, default=str) if patient_explanation else None,
-                    doctor_summary=json.dumps(doctor_explanation, default=str) if doctor_explanation else None,
-                )
-            except Exception as exc:
-                st.warning(f"Could not save ECG assessment: {exc}")
-
-            st.success("ECG analysis complete.")
-        finally:
-            try:
-                os.remove(tmp.name)
-            except Exception:
-                pass
+    _render_ecg_page(role_lower)
 
 
 def _render_risk_history(user_id):
@@ -3215,34 +2943,9 @@ def main_app():
     if page == "Risk Prediction":
         show_risk_prediction_page(predictor_ready)
 
-    elif page == ECG_ANALYSIS_LABEL and role_lower in ("doctor", "admin"):
-        st.header("ECG Analysis & Collaboration")
-        doctor_id = st.session_state.get("user_id")
-        if not doctor_id:
-            st.error("Doctor identification missing. Please log in again.")
-            return
-
-        st.caption("Review recent ECG classifications, add clinical notes, and share feedback with patients.")
-
-        patient_id = st.number_input(
-            "Patient ID",
-            min_value=1,
-            step=1,
-            value=1,
-            format="%d",
-            help="Enter the patient ID to view their ECG data.",
-        )
-
-        if st.button(
-            "Load ECG Data",
-            use_container_width=True,
-        ):
-            try:
-                _render_ecg_page(role_lower)
-            except Exception as e:
-                st.error(f"Failed to render ECG page: {str(e)}")
-                import traceback
-                st.text(traceback.format_exc())
+    elif page == ECG_ANALYSIS_LABEL and role_lower in ('doctor', 'admin'):
+        _render_ecg_page(role_lower)
+        return
 
     if page == GA_FEATURE_ANALYSIS_LABEL:
         show_ga_feature_analysis_page(df)
@@ -5117,198 +4820,7 @@ def main_app():
                 st.info("No recent vitals found. Please complete a risk assessment to see your latest metrics.")
 
     elif page == ECG_PAGE_LABEL:
-        st.header("ECG Classification")
-        st.caption("Upload an ECG image to analyze heart rhythm patterns and detect potential abnormalities.")
-        
-        if ECG_IMPORT_ERROR is not None or not ECG_AVAILABLE or ecg_analyzer is None:
-            st.error("ECG Module is not available")
-            st.warning(f"Error details: {ECG_IMPORT_ERROR}")
-            st.info("To enable ECG classification, please install the required dependencies:")
-            
-            st.code("pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu", language="bash")
-            st.code("pip install opencv-python pillow wfdb", language="bash")
-            
-            st.markdown("""
-            **ECG Classification requires:**
-            - PyTorch (torch)
-            - TorchVision (torchvision) 
-            - OpenCV (opencv-python)
-            - Pillow (pillow)
-            - WFDB (wfdb)
-            
-            After installing, restart the Streamlit app.
-            """)
-            
-            # Show alternative manual ECG analysis
-            st.subheader("Manual ECG Analysis Guide")
-            st.markdown("""
-            While the automated ECG analysis is unavailable, you can manually analyze ECG images:
-            
-            **Key ECG Patterns to Look For:**
-            - **P Wave**: Atrial depolarization
-            - **QRS Complex**: Ventricular depolarization  
-            - **T Wave**: Ventricular repolarization
-            - **PR Interval**: Atrioventricular conduction time
-            - **QT Interval**: Ventricular depolarization + repolarization
-            
-            **Common Abnormalities:**
-            - Irregular rhythm → Possible atrial fibrillation
-            - Wide QRS → Bundle branch block
-            - ST elevation → Possible myocardial infarction
-            - T wave inversion → Ischemia
-            
-            **Important:** This is for educational purposes only. Always consult a cardiologist for proper ECG interpretation.
-            """)
-        else:
-            st.subheader("Upload ECG Image")
-            uploaded_file = st.file_uploader("Choose an ECG image file", type=['png', 'jpg', 'jpeg', 'gif'])
-            role_lower = st.session_state.get("user_role", "patient").lower()
-            
-            if uploaded_file is not None:
-                # Display the uploaded image
-                image = Image.open(uploaded_file)
-                st.image(image, caption='Uploaded ECG Image', use_container_width=True)
-                
-                # Add analysis button
-                if st.button("Analyze ECG", use_container_width=True):
-                    with st.spinner("Analyzing ECG patterns..."):
-                        tmp_file = tempfile.NamedTemporaryFile(delete=False, suffix=".png")
-                        temp_path = tmp_file.name
-                        try:
-                            models = _get_cached_ecg_models()
-                            if not models:
-                                st.error("ECG models are not available. Please ensure the backend models are loaded.")
-                                return
-
-                            image.save(temp_path, format="PNG")
-                            processed_image = _preprocess_ecg_image(image_path=temp_path)
-
-                            # Get predictions from ensemble model
-                            predicted_label, confidence, class_probs = _predict_ecg_ensemble(models, processed_image)
-                            class_names = ['Normal', 'Myocardial Infarction', 'Arrhythmia', 'Left Ventricular Hypertrophy', 'Bundle Branch Block']
-                            prediction = {
-                                'class': predicted_label,
-                                'confidence': confidence * 100,
-                                'probabilities': {
-                                    'class_names': class_names,
-                                    'values': [float(p) for p in class_probs]
-                                }
-                            }
-                            st.session_state.ecg_prediction = prediction
-                            
-                            # Display results
-                            st.success("ECG Analysis Complete!")
-                            
-                            # Show prediction
-                            predicted_class = prediction['class']
-                            confidence_pct = prediction['confidence']
-                            message = f"**Prediction: {predicted_class}** ({confidence_pct:.1f}%)"
-                            if predicted_class == 'Normal':
-                                st.success(message)
-                            else:
-                                st.warning(message)
-                            
-                            # Show class probabilities
-                            st.subheader("Class Probabilities")
-                            prob_df = pd.DataFrame({
-                                'Condition': prediction['probabilities']['class_names'],
-                                'Probability (%)': [p * 100 for p in prediction['probabilities']['values']]
-                            })
-                            st.bar_chart(prob_df.set_index('Condition'))
-
-                            # Plain-language explanation of the detected ECG condition
-                            condition_key = predicted_class
-                            if predicted_class == 'Normal':
-                                # Map to key used in the explanation helpers
-                                condition_key = 'Normal Beat'
-
-                            st.markdown("### What this condition means")
-                            st.write(_get_patient_explanation(condition_key))
-
-                            st.markdown("### Recommended next steps")
-                            st.write(_get_patient_guidance(condition_key))
-
-                            # Explainable AI insights
-                            explanation_for_display = None
-                            patient_explanation = None
-                            doctor_explanation = None
-                            if _explain_ecg_prediction:
-                                try:
-                                    patient_explanation = _explain_ecg_prediction(
-                                        models=models,
-                                        image_path=temp_path,
-                                        audience="patient",
-                                    )
-                                except Exception as exc:
-                                    st.warning(f"Patient-facing explanation unavailable: {exc}")
-
-                                if role_lower in ("doctor", "admin"):
-                                    try:
-                                        doctor_explanation = _explain_ecg_prediction(
-                                            models=models,
-                                            image_path=temp_path,
-                                            audience="doctor",
-                                        )
-                                    except Exception as exc:
-                                        st.warning(f"Clinician explanation unavailable: {exc}")
-
-                            explanation_for_display = doctor_explanation if role_lower in ("doctor", "admin") and doctor_explanation else patient_explanation
-
-                            if explanation_for_display:
-                                st.subheader("Explainable AI Insights")
-                                if role_lower in ("doctor", "admin") and doctor_explanation:
-                                    clinical_context = explanation_for_display.get("clinical_context")
-                                    if clinical_context:
-                                        st.write(f"**Clinical Context:** {clinical_context}")
-                                    probability_details = explanation_for_display.get("probabilities")
-                                    if probability_details:
-                                        st.table(pd.DataFrame(
-                                            [(k, v) for k, v in probability_details.items()],
-                                            columns=["Class", "Probability"]
-                                        ))
-                                    shap_plot_path = explanation_for_display.get("shap_plot")
-                                    if shap_plot_path and os.path.exists(shap_plot_path):
-                                        st.image(shap_plot_path, caption="SHAP Feature Importance", use_container_width=True)
-                                    feature_importance = explanation_for_display.get("feature_importance")
-                                    if isinstance(feature_importance, dict) and feature_importance:
-                                        st.markdown("**Top Feature Drivers**")
-                                        fi_df = pd.DataFrame(
-                                            list(feature_importance.items()),
-                                            columns=["Feature", "Importance"]
-                                        ).head(10)
-                                        st.table(fi_df)
-                                else:
-                                    summary = explanation_for_display.get("summary")
-                                    if summary:
-                                        st.write(summary)
-                                    what_it_means = explanation_for_display.get("what_it_means")
-                                    if what_it_means:
-                                        st.markdown("**What This Means For You:**")
-                                        st.write(what_it_means)
-                                    guidance = explanation_for_display.get("guidance")
-                                    if guidance:
-                                        st.info(guidance)
-                                    probability_bar = explanation_for_display.get("probability_bar")
-                                    if probability_bar and os.path.exists(probability_bar):
-                                        st.image(probability_bar, caption="Probability Breakdown", use_container_width=True)
-
-                            # Add clinical interpretation
-                            st.subheader("Clinical Interpretation")
-                            if predicted_class == 'Normal':
-                                st.info("The ECG appears normal with regular rhythm and no significant abnormalities detected.")
-                            else:
-                                st.warning("Abnormal ECG pattern detected. Please consult with a healthcare professional for proper interpretation.")
-                                
-                        except Exception as e:
-                            st.error(f"Analysis failed: {str(e)}")
-                            st.info("Please ensure the image is a valid ECG recording.")
-                        finally:
-                            tmp_file.close()
-                            try:
-                                if os.path.exists(temp_path):
-                                    os.remove(temp_path)
-                            except OSError:
-                                pass
+        _render_ecg_page(role_lower)
 
     elif page == THREE_D_PAGE_LABEL:
         _render_3d_viewer_page()
