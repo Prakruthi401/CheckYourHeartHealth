@@ -13,21 +13,28 @@ It is a learning project. Don't use it to make real health decisions.
 
 ## Real numbers
 
-Measured with `src/risk_prediction/train_model.py` on a held-out 20% test split (13,110 rows the model never saw during training):
+Measured on a held-out 20% test split (13,110 rows the model never saw during training). `train_model.py` and `train_ensemble.py` in `src/risk_prediction/` reproduce them.
 
 | Model | Accuracy | AUC |
 |---|---|---|
 | Logistic regression (baseline) | 72.3% | 0.789 |
-| LightGBM (the one the app uses) | 73.4% | 0.801 |
+| Random forest | 73.1% | 0.800 |
+| Transformer (small, tabular) | 73.4% | 0.799 |
+| LightGBM (what the live app uses) | 73.4% | 0.801 |
+| Stacked ensemble (LightGBM + RF + Transformer, logistic-regression combiner) | 73.5% | 0.801 |
 
-5-fold cross-validation on the training part gave the same picture (73.1% accuracy, 0.799 AUC for LightGBM). That is about the ceiling for this dataset with these features, so I wouldn't expect much more from a fancier model.
+The ensemble is within noise of LightGBM. The gap is 0.07 points of accuracy, far smaller than the run-to-run wobble. All the models land in the same place, so this dataset is the ceiling, not the model. I built the ensemble to learn how stacking works, not because it wins.
+
+5-fold cross-validation on the training part gave 73.1% accuracy and 0.799 AUC for LightGBM.
+
+The trained ensemble file (about 5 MB) is not in the repo, because I could not upload it from the GitHub web page. Run `python src/risk_prediction/train_ensemble.py` (about 7 minutes) and the app picks it up automatically. Without it the app uses LightGBM.
 
 One caveat: the repo only has a standardized copy of the dataset, so I recovered the original units (years, cm, kg, mmHg) from it. They are close, not guaranteed identical to the original file.
 
 ## What does not work (yet)
 
 - **ECG classification.** There is no trained ECG model in this repo. The first version returned a hardcoded "Normal Beat, 95%" for everything. I turned that off. The ECG pages now say the feature isn't available.
-- **The stacking ensemble (Transformer + LightGBM + Random Forest + MLP).** The code and saved weights are still in `src/risk_prediction/`, but the app never used them, and they were trained on standardized data while the app sent raw values. The old "~70% accuracy, 0.79 AUC" came from that ensemble on a 2,622-row test set. I removed it from the claims.
+- **The old stacking ensemble (Transformer + LightGBM + Random Forest + MLP).** The app never used it, and it was trained on standardized data while the app sent raw values. The old "~70% accuracy, 0.79 AUC" came from a 2,622-row test set. I replaced it with the retrained ensemble in the table above.
 - **Genetic algorithm / PSO feature selection.** Experiments only. The PSO run in `logs/` failed. The app doesn't use either.
 - **SHAP and LIME.** Not wired to the real model. The factor explanations in the app are rule-based estimates.
 
