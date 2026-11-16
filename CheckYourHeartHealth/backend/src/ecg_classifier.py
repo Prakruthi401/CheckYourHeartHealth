@@ -3,6 +3,7 @@ from pathlib import Path
 import io, base64, zlib
 import numpy as np
 import torch
+torch.set_num_threads(1)
 from torch import nn
 CLASSES = ['NORM', 'MI', 'STTC', 'CD', 'HYP']
 LEADS = ['I', 'II', 'III', 'AVR', 'AVL', 'AVF', 'V1', 'V2', 'V3', 'V4', 'V5', 'V6']
