@@ -1,0 +1,19 @@
+# Local secrets and personal data must never be committed.
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite
+*.sqlite3
+__pycache__/
+*.py[cod]
+.venv/
+.ens_cache/
+heart_risk_model.joblib
+heart_risk_ensemble.joblib
+# Local ECG experiment downloads and generated checkpoints.
+**/ecg_training/dat/
+**/ecg_training/*.npy
+**/ecg_training/*.pt
+**/ecg_training/ptbxl_database.csv
+**/ecg_training/scp.csv
