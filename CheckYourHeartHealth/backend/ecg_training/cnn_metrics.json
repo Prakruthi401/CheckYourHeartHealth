@@ -1,0 +1,11 @@
+{
+ "test_records": 2158,
+ "per_class_auc": {
+  "NORM": 0.9509,
+  "MI": 0.9295,
+  "STTC": 0.9386,
+  "CD": 0.9236,
+  "HYP": 0.9089
+ },
+ "macro_auc": 0.9303
+}
