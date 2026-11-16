@@ -436,7 +436,7 @@ load_dotenv()
 # Trained risk model (LightGBM, see src/risk_prediction/train_model.py)
 _RISK_MODEL_PATH = os.path.join(os.path.dirname(__file__), 'src', 'risk_prediction', 'heart_risk_model.joblib')
 
-@st.cache_resource
+@st.cache_resource(show_spinner="Loading the risk model (it trains itself on the very first run, about 20 seconds)...")
 def _load_risk_model():
     import joblib
     if not os.path.exists(_RISK_MODEL_PATH):
@@ -728,13 +728,20 @@ def _generate_recommendations(user_data):
 
 
 def _evaluate_what_if_scenarios(user_data, baseline_risk):
-    """Run rule-based what-if scenarios to quantify potential risk improvements."""
+    """Re-run the trained model with one change at a time (weight, smoking, blood pressure...) to see how the score moves."""
     scenarios = []
 
     def add_scenario(title, adjustments, rationale, actions):
         scenario_payload = copy.deepcopy(user_data)
         scenario_payload.update(adjustments)
-        simulated_risk = _compute_rule_based_risk(scenario_payload)
+        try:
+            _h = float(scenario_payload.get("height") or 0)
+            _w = float(scenario_payload.get("weight") or 0)
+            if _h > 0 and _w > 0:
+                scenario_payload["bmi"] = scenario_payload["BMI"] = _w / (_h / 100) ** 2
+        except (TypeError, ValueError):
+            pass
+        simulated_risk, _ = _model_risk_percent(scenario_payload)
         delta = simulated_risk - baseline_risk
         scenarios.append(
             {
@@ -2382,6 +2389,38 @@ def _render_standard_ecg_analysis(role_lower: str):
                 pass
 
 
+def _render_risk_history(user_id):
+    """Show this patient's saved risk assessments (from the database) as a trend and a table."""
+    st.subheader("Your risk history")
+    rows = [r for r in get_patient_history(user_id).get("assessments", [])]
+    records = []
+    for _id, ts, input_json, score, category, model_name in rows:
+        try:
+            data = json.loads(input_json) if input_json else {}
+        except (TypeError, ValueError):
+            data = {}
+        if isinstance(data, dict) and data.get("type") == "ecg":
+            continue
+        records.append({
+            "When": ts, "Risk %": round(float(score), 1), "Category": category,
+            "Age": data.get("age"), "Weight (kg)": data.get("weight"),
+            "BP": f"{data.get('ap_hi')}/{data.get('ap_lo')}" if data.get("ap_hi") else None,
+        })
+    if not records:
+        st.info("No saved assessments yet. Calculate your risk above and it will show up here.")
+        return
+    df = pd.DataFrame(records)
+    df["When"] = pd.to_datetime(df["When"], errors="coerce")
+    df = df.sort_values("When")
+    if len(df) >= 2:
+        st.line_chart(df.set_index("When")["Risk %"])
+        change = df["Risk %"].iloc[-1] - df["Risk %"].iloc[0]
+        st.caption(f"{len(df)} assessments. Change since your first one: {change:+.1f} points.")
+    else:
+        st.caption("1 assessment so far. Come back after your next check to see a trend.")
+    st.dataframe(df.sort_values("When", ascending=False), use_container_width=True, hide_index=True)
+
+
 def show_risk_prediction_page(predictor_ready: bool):
     st.title("CheckYourHeartHealth")
     st.markdown("""
@@ -2470,9 +2509,6 @@ def show_risk_prediction_page(predictor_ready: bool):
     st.subheader("Feature Importance")
     st.info("Feature importance chart will be displayed after calculation")
     
-    st.subheader("Risk Over Time")
-    st.info("Risk trend chart will be displayed after calculation")
-
     # Handle form submission
     if submitted:
         if "user_id" not in st.session_state:
@@ -2708,6 +2744,10 @@ def show_risk_prediction_page(predictor_ready: bool):
             except Exception as e:
                 st.error(f"Prediction failed: {e}")
                 st.info("Try again or check if models are properly trained.")
+
+    if st.session_state.get("user_id"):
+        _render_risk_history(st.session_state["user_id"])
+
 
 def show_ecg_review_page(role_lower: str) -> None:
     if role_lower not in ("doctor", "admin"):
