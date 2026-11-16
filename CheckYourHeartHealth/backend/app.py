@@ -436,24 +436,37 @@ load_dotenv()
 # Trained risk model (LightGBM, see src/risk_prediction/train_model.py)
 _RISK_MODEL_PATH = os.path.join(os.path.dirname(__file__), 'src', 'risk_prediction', 'heart_risk_model.joblib')
 
-@st.cache_resource(show_spinner="Loading the risk model (it trains itself on the very first run, about 20 seconds)...")
+_ENSEMBLE_PATH = os.path.join(os.path.dirname(__file__), 'src', 'risk_prediction', 'heart_risk_ensemble.joblib')
+
+@st.cache_resource(show_spinner="Loading the risk model (the LightGBM fallback trains itself on a very first run, about 20 seconds)...")
 def _load_risk_model():
+    """Prefer the trained stacking ensemble; fall back to the single LightGBM model."""
     import joblib
+    try:
+        from src.risk_prediction.ensemble import StackedRiskModel
+        return {"kind": "ensemble", "model": StackedRiskModel(joblib.load(_ENSEMBLE_PATH))}
+    except Exception as exc:
+        print(f"[Ensemble unavailable, using LightGBM] {exc}")
     if not os.path.exists(_RISK_MODEL_PATH):
-        # Train it on first run (takes a few seconds)
         from src.risk_prediction import train_model
         train_model.main()
-    return joblib.load(_RISK_MODEL_PATH)
+    return {"kind": "lightgbm", **joblib.load(_RISK_MODEL_PATH)}
 
 def _model_risk_percent(user_data):
-    """Risk (0-100) from the trained model. Falls back to the hand-written rule score if the model file is missing."""
+    """Risk (0-100) from the trained model. Falls back to the hand-written rule score if no model can be loaded."""
     try:
         bundle = _load_risk_model()
-        row = pd.DataFrame([{**user_data, "bmi": user_data.get("bmi", user_data.get("BMI"))}])[bundle["features"]]
+        bmi = user_data.get("bmi", user_data.get("BMI"))
+        data = {**user_data, "bmi": bmi}
+        if bundle["kind"] == "ensemble":
+            model = bundle["model"]
+            row = pd.DataFrame([data])[model.features]
+            return float(model.predict_proba(row)[0]) * 100.0, "Stacked ensemble (LightGBM + Random Forest + Transformer)"
+        row = pd.DataFrame([data])[bundle["features"]]
         return float(bundle["model"].predict_proba(row)[0, 1]) * 100.0, "LightGBM (trained on the cardio dataset)"
     except Exception as exc:
         print(f"[Risk model unavailable, using rule-based score] {exc}")
-        return float(_compute_rule_based_risk(user_data)), "Rule-based score (model file missing)"
+        return float(_compute_rule_based_risk(user_data)), "Rule-based score (model unavailable)"
 
 # Utility helpers
 def safe_log_action(admin_id, action, details=""):
@@ -2426,7 +2439,7 @@ def show_risk_prediction_page(predictor_ready: bool):
     st.markdown("""
     # Advanced Cardiovascular Risk Prediction
     
-    Estimate cardiovascular risk from basic health data. This is a learning project (a LightGBM model, about 73% accurate on a held-out test set), not medical advice.
+    Estimate cardiovascular risk from basic health data. This is a learning project (a stacked ML ensemble, about 73% accurate on a held-out test set), not medical advice.
     """)
     
     # Two-column layout for main content
