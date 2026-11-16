@@ -80,23 +80,9 @@ class ECGClassifier:
             raise
     
     def predict_ensemble(self, ecg_signal=None, fs=360):
-        """
-        Make predictions using the ensemble of models.
-        If models are not available, return a default normal prediction.
-        """
-        # Always return the default prediction for now
-        if not hasattr(self, 'default_prediction'):
-            self.default_prediction = {
-                'class': 'Normal Beat',
-                'confidence': 0.95,
-                'probabilities': {
-                    'class_names': self.class_names,
-                    'values': [0.95 if x == 'Normal Beat' else 0.01 for x in self.class_names]
-                },
-                'model_contributions': {}
-            }
-        return self.default_prediction
-    
+        """ECG classification is not implemented: there is no trained ECG model in this repo."""
+        raise NotImplementedError("No trained ECG model is available.")
+
     def _extract_features(self, ecg_signal):
         """Extract handcrafted features for Random Forest"""
         # This is a simplified version - in practice, use more sophisticated feature extraction
