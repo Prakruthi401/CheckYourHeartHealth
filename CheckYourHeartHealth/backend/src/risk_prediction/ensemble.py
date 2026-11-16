@@ -6,6 +6,9 @@ import numpy as np
 import torch
 import torch.nn as nn
 
+# A shared demo host has a small CPU allowance. Avoid large thread pools per request.
+torch.set_num_threads(1)
+
 FEATURES = ["age", "gender", "height", "weight", "ap_hi", "ap_lo",
             "cholesterol", "gluc", "smoke", "alco", "active", "bmi"]
 
@@ -58,6 +61,8 @@ class StackedRiskModel:
         self.scaler = bundle["scaler"]
         self.lgb = bundle["lgb"]
         self.rf = bundle["rf"]
+        self.lgb.set_params(n_jobs=1)
+        self.rf.set_params(n_jobs=1)
         self.meta = bundle["meta"]
         self.transformer = TabTransformer()
         self.transformer.load_state_dict(bundle["transformer_state"])
