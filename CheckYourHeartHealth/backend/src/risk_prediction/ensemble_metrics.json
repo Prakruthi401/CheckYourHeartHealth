@@ -1,0 +1,54 @@
+{
+  "test_rows": 13110,
+  "train_rows": 52438,
+  "held_out_test": {
+    "lightgbm": {
+      "accuracy": 0.7339,
+      "auc": 0.8007,
+      "f1": 0.7298
+    },
+    "random_forest": {
+      "accuracy": 0.7313,
+      "auc": 0.7996,
+      "f1": 0.7224
+    },
+    "transformer": {
+      "accuracy": 0.7343,
+      "auc": 0.7987,
+      "f1": 0.7282
+    },
+    "stacked_ensemble": {
+      "accuracy": 0.7346,
+      "auc": 0.8009,
+      "f1": 0.7306
+    }
+  },
+  "out_of_fold_on_train": {
+    "lightgbm": {
+      "accuracy": 0.7313,
+      "auc": 0.799,
+      "f1": 0.7273
+    },
+    "random_forest": {
+      "accuracy": 0.7295,
+      "auc": 0.797,
+      "f1": 0.7217
+    },
+    "transformer": {
+      "accuracy": 0.7308,
+      "auc": 0.7972,
+      "f1": 0.7251
+    },
+    "stacked_ensemble": {
+      "accuracy": 0.7315,
+      "auc": 0.7991,
+      "f1": 0.7276
+    }
+  },
+  "meta_weights": {
+    "lightgbm": 3.28,
+    "random_forest": 0.67,
+    "transformer": 0.88
+  },
+  "best_on_held_out_auc": "stacked_ensemble"
+}
