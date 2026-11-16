@@ -133,252 +133,9 @@ def _start_heart_viewer_server() -> int:
 
 
 def _render_3d_viewer_page():
-    st.title("3D Heart Viewer")
-    st.caption("Interact with the anatomical heart model using the controls embedded inside the viewer.")
+    from src.heart_viewer import render_heart_viewer
+    render_heart_viewer(HEART_VIEWER_DIR)
 
-    if not HEART_VIEWER_DIR.exists():
-        st.error("3D viewer assets are missing. Ensure the 'heart-master' folder is present.")
-        return
-
-    try:
-        port = _start_heart_viewer_server()
-    except Exception as exc:
-        st.error(f"Unable to launch 3D viewer: {exc}")
-        return
-
-    c1, c2, c3 = st.columns([1, 1, 1])
-    with c1:
-        disease = st.selectbox(
-            "Disease state",
-            ["healthy", "atherosclerosis", "valve_stenosis", "myocardial_infarction"],
-            index=0,
-        )
-        progression = st.slider("Progression", 0, 100, 0)
-        model_choice = st.selectbox("Model", ["closedheart", "openheart"], index=0)
-    with c2:
-        smoking = st.checkbox("Smoking", value=False)
-        bp = st.checkbox("High BP", value=False)
-        cholesterol = st.checkbox("High Cholesterol", value=False)
-        alcohol = st.checkbox("Alcohol", value=False)
-        exercise = st.checkbox("On/Off", value=True)
-    with c3:
-        realism = st.checkbox("Realistic Effects", value=False)
-        show_controls = st.checkbox("Show controls inside viewer", value=False)
-        auto_tour = st.checkbox("Start guided tour", value=False)
-        blood_flow_option = st.selectbox(
-            "Blood flow",
-            ("Enabled", "Disabled"),
-            index=0,
-            help="Choose whether animated blood particles are shown in the 3D model.",
-        )
-        # Add rhythm toggle
-        rhythm = st.checkbox("Heart Rhythm", value=True, help="Enable heart rhythm animation")
-        
-    blood_flow_enabled = blood_flow_option == "Enabled"
-
-    # Educational animation link mapped to the currently selected disease state
-    animation_links = {
-        "healthy": {
-            "label": "Watch animation: How a healthy heart works",
-            "url": "https://www.youtube.com/watch?v=mTwQAwBlIJI&vl=en",
-        },
-        "atherosclerosis": {
-            "label": "Watch animation: How cholesterol narrows arteries",
-            "url": "https://www.youtube.com/watch?v=kayrfBzE0MQ",
-        },
-        "valve_stenosis": {
-            "label": "Watch animation: What valve stenosis does to the heart",
-            "url": "https://www.youtube.com/watch?v=0U7YHRW5dyc",
-        },
-        "myocardial_infarction": {
-            "label": "Watch animation: What happens in a heart attack",
-            "url": "https://www.youtube.com/watch?v=bx99qQoHk5I",
-        },
-    }
-
-    selected_anim = animation_links.get(disease)
-
-    # Honor the model selection so "closedheart" continues to work; rhythm
-    # animation will still run on whichever model is active.
-    effective_model_choice = model_choice
-
-    qs = {
-        "state": disease,
-        "progress": str(progression),
-        "smoking": "1" if smoking else "0",
-        "bp": "1" if bp else "0",
-        "cholesterol": "1" if cholesterol else "0",
-        "alcohol": "1" if alcohol else "0",
-        "exercise": "1" if exercise else "0",
-        "bloodFlow": "1" if blood_flow_enabled else "0",
-        "realism": "1" if realism else "0",
-        "controls": "1" if show_controls else "0",
-        "model": effective_model_choice,
-        "rhythm": "1" if rhythm else "0",
-    }
-    if auto_tour:
-        qs["tour"] = "1"
-    query = "&".join([f"{k}={v}" for k, v in qs.items()])
-
-    # Use the dedicated minimal viewer page so only the 3D heart UI is shown
-    iframe_url = f"http://127.0.0.1:{port}/viewer.html?{query}"
-
-    st.subheader("Interactive 3D Model")
-    components.html(
-        f"<iframe title=\"Interactive 3D heart\" src=\"{iframe_url}\" style=\"width:100%; height:88vh; border:none; border-radius:12px; background:#000;\" allow=\"fullscreen\" aria-label=\"3D heart visualization\"></iframe>",
-        height=820,
-        scrolling=False,
-    )
-    
-    # Brief explanation of the currently selected disease state
-    disease_descriptions = {
-        "healthy": (
-            "**Healthy heart** – normal pumping function and unobstructed blood flow.\n\n"
-            "In the 3D view you will see smooth, regular contractions and clean vessels without plaques or blockages."
-        ),
-        "atherosclerosis": (
-            "**Atherosclerosis** – fatty plaque builds up inside the arteries that supply the heart.\n\n"
-            "- Narrows the coronary arteries and reduces blood flow to the heart muscle.\n"
-            "- Plaques can rupture and form clots, leading to chest pain or heart attack.\n\n"
-            "In the 3D view you will see narrowed, stiff vessels and disturbed blood flow through the arteries."
-        ),
-        "valve_stenosis": (
-            "**Valve stenosis** – one or more heart valves become stiff and do not open fully.\n\n"
-            "- Forces the heart to pump harder to push blood through the narrowed valve opening.\n"
-            "- Over time this can enlarge and weaken the heart muscle.\n\n"
-            "In the 3D view you will see a tight valve opening with turbulent, high‑pressure blood flow across the valve."
-        ),
-        "myocardial_infarction": (
-            "**Myocardial infarction (heart attack)** – a coronary artery becomes suddenly blocked.\n\n"
-            "- A clot stops blood flow to part of the heart muscle.\n"
-            "- Heart muscle in that area is damaged or dies if blood flow is not restored quickly.\n\n"
-            "In the 3D view you will see an area of the heart muscle with poor blood flow and impaired contraction."
-        ),
-    }
-
-    selected_disease_text = disease_descriptions.get(disease)
-    if selected_disease_text:
-        st.markdown("### Disease overview")
-        st.markdown(selected_disease_text)
-    
-    # Add detailed information about health factors
-    st.markdown("### How Health Factors Affect Your Heart")
-    
-    # Create expandable sections for each health factor
-    with st.expander("Smoking Effects on the Heart", expanded=False):
-        st.markdown("""
-        **How smoking affects your cardiovascular system:**
-        - **Arterial damage**: Nicotine and carbon monoxide damage the lining of your arteries, leading to a build-up of fatty material which narrows the artery (atherosclerosis)
-        - **Blood clotting**: Smoking increases the likelihood of blood clots forming, which can block arteries and lead to heart attacks or strokes
-        - **Reduced oxygen**: Carbon monoxide in cigarette smoke reduces the amount of oxygen in your blood, forcing your heart to work harder
-        - **Increased heart rate**: Nicotine increases your heart rate and blood pressure, putting extra strain on your heart
-        - **Inflammation**: Smoking causes inflammation in blood vessels, contributing to heart disease
-        
-        **In the 3D model**: When you enable smoking, you'll see:
-        - Changes in blood flow patterns
-        - Increased stress on arterial walls
-        - Visual indicators of reduced oxygen delivery
-        """)
-    
-    with st.expander("High Cholesterol Effects", expanded=False):
-        st.markdown("""
-        **How high cholesterol affects your cardiovascular system:**
-        - **Plaque formation**: Excess LDL ("bad") cholesterol builds up in your artery walls, forming plaques that narrow and harden arteries
-        - **Atherosclerosis**: This plaque buildup restricts blood flow and can eventually block arteries completely
-        - **Blood clots**: Plaques can rupture, triggering blood clot formation that may block blood flow to the heart or brain
-        - **Coronary artery disease**: Narrowed coronary arteries reduce blood flow to heart muscle, causing chest pain or heart attacks
-        
-        **In the 3D model**: When you enable high cholesterol, you'll see:
-        - Yellowish plaque deposits forming in major arteries
-        - Narrowing of arterial passages
-        - Reduced blood flow velocity
-        - Areas of turbulent flow where plaques are present
-        """)
-    
-    with st.expander("Alcohol Effects on the Heart", expanded=False):
-        st.markdown("""
-        **How excessive alcohol affects your cardiovascular system:**
-        - **High blood pressure**: Regular heavy drinking raises blood pressure, putting strain on your heart and blood vessels
-        - **Cardiomyopathy**: Long-term alcohol abuse weakens and thins the heart muscle, affecting its ability to pump blood effectively
-        - **Arrhythmias**: Alcohol can cause irregular heartbeat patterns, increasing the risk of stroke and heart failure
-        - **Increased calorie intake**: Alcoholic beverages are high in calories, contributing to obesity and related heart problems
-        
-        **In the 3D model**: When you enable alcohol, you'll see:
-        - Irregular heartbeat patterns
-        - Changes in heart muscle contraction strength
-        - Altered blood pressure visualization
-        """)
-    
-    with st.expander("Exercise Benefits for the Heart", expanded=False):
-        st.markdown("""
-        **How regular exercise benefits your cardiovascular system:**
-        - **Stronger heart muscle**: Exercise strengthens the heart muscle, enabling it to pump more blood with less effort
-        - **Lower resting heart rate**: A stronger heart can pump more blood with fewer beats, reducing resting heart rate
-        - **Improved circulation**: Exercise improves blood flow and helps the heart use oxygen more efficiently
-        - **Lower blood pressure**: Regular physical activity helps maintain healthy blood pressure levels
-        - **Better cholesterol**: Exercise can raise HDL ("good") cholesterol and lower LDL ("bad") cholesterol
-        
-        **In the 3D model**: When you enable exercise, you'll see:
-        - Improved blood flow efficiency
-        - Stronger, more regular heartbeat
-        - Better oxygen delivery throughout the body
-        - Healthier arterial function
-        """)
-    
-    with st.expander("High Blood Pressure Effects", expanded=False):
-        st.markdown("""
-        **How high blood pressure affects your cardiovascular system:**
-        - **Arterial damage**: High pressure constantly damages artery walls, making them more susceptible to plaque buildup
-        - **Heart strain**: The heart must work harder to pump blood against increased pressure, leading to thickening of the heart muscle
-        - **Aneurysms**: Weakened artery walls can bulge and form aneurysms, which may rupture and cause life-threatening bleeding
-        - **Heart failure**: Over time, the increased workload can cause the heart muscle to weaken and fail
-        
-        **In the 3D model**: When you enable high blood pressure, you'll see:
-        - Increased stress indicators on arterial walls
-        - Changes in blood flow velocity and pressure visualization
-        - Heart muscle strain patterns
-        - Areas at risk for damage
-        """)
-    
-    # Create eye-catching boxed buttons for educational videos below the 3D model
-    st.markdown("### Educational Videos")
-    
-    # Combine all educational videos into one list
-    all_videos = []
-    
-    # Add disease-specific animation (if available for this state)
-    if selected_anim:
-        all_videos.append({
-            "title": selected_anim["label"],
-            "url": selected_anim["url"],
-        })
-    
-    # Add lifestyle & risk factor animations
-    factor_videos = [
-        {"title": "See how smoking damages your heart", "url": "https://www.youtube.com/watch?v=l91pR57OG-M"},
-        {"title": "See how cholesterol builds arterial plaque", "url": "https://www.youtube.com/watch?v=kayrfBzE0MQ"},
-        {"title": "Learn how diabetes increases heart risk", "url": "https://www.youtube.com/watch?v=0U7YHRW5dyc"},
-        {"title": "Explore how high blood pressure strains vessels", "url": "https://www.youtube.com/watch?v=EpYwuFOe7Jg"},
-        {"title": "Understand alcohol's impact on your heart", "url": "https://www.youtube.com/watch?v=uZUCZn0xnYE"},
-        {"title": "Watch why regular exercise protects your heart", "url": "https://www.youtube.com/shorts/uNJI7_SKLOY"},
-        {"title": "See how these diseases happen", "url": "https://www.youtube.com/watch?v=kayrfBzE0MQ"},
-        {"title": "See how heart attack happens inside heart", "url": "https://www.youtube.com/watch?v=bx99qQoHk5I"},
-    ]
-    all_videos.extend(factor_videos)
-    
-    # Display videos in eye-catching boxes below the 3D model
-    cols = st.columns(2)
-    for idx, video in enumerate(all_videos):
-        with cols[idx % 2]:
-            st.markdown(
-                f"""
-                <div style="background-color: #f0f0f0; border: 2px solid #ff6b6b; border-radius: 10px; padding: 15px; margin: 10px 0;">
-                    <h4 style="color: #ff6b6b; margin-top: 0;">{video['title']}</h4>
-                    <a href="{video['url']}" target="_blank" style="display: inline-block; background-color: #ff6b6b; color: white; padding: 8px 16px; text-decoration: none; border-radius: 5px; font-weight: bold;">Watch Video</a>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
 
 # The signal model loads lazily when a valid ECG is uploaded.
 ECG_AVAILABLE = ecg_analyzer is not None
@@ -425,7 +182,7 @@ def _load_risk_model():
     return {"kind": "lightgbm", **joblib.load(_RISK_MODEL_PATH)}
 
 def _model_risk_percent(user_data):
-    """Risk (0-100) from the trained model. Falls back to the hand-written rule score if no model can be loaded."""
+    """Risk (0-100) from the trained model. Raises an error if neither trained model can be loaded."""
     try:
         bundle = _load_risk_model()
         bmi = user_data.get("bmi", user_data.get("BMI"))
@@ -1064,92 +821,13 @@ def _estimate_feature_contributions(user_data, risk_score):
 
 
 def _render_explainability_section(contributions, show_actionable=True):
-    if not contributions:
-        st.info("Explainability data is not available yet. Please run a prediction first.")
-        return
-
-    contrib_df = pd.DataFrame(contributions)
-    if contrib_df.empty:
-        st.info("No explainability data to display.")
-        return
-
-    if 'direction' not in contrib_df.columns:
-        contrib_df['direction'] = np.where(contrib_df['impact'] >= 0, 'risk_increase', 'risk_decrease')
-
-    contrib_df['impact_signed'] = contrib_df.apply(
-        lambda row: row['impact'] if row['direction'] == 'risk_increase' else -abs(row['impact']),
-        axis=1
-    )
-    # Matplotlib horizontal bar chart for feature impact
-    try:
-        features = contrib_df['feature'].astype(str).tolist()
-        impacts = contrib_df['impact_signed'].astype(float).tolist()
-        colors = ['#e63946' if v > 0 else '#2a9d8f' for v in impacts]
-
-        fig, ax = plt.subplots(figsize=(8, max(3, 0.4 * len(features))))
-        ax.barh(features, impacts, color=colors)
-        ax.set_xlabel('Impact on risk (%)')
-        ax.set_ylabel('Feature')
-        ax.axvline(0, color='black', linewidth=0.8)
-        fig.tight_layout()
-        st.pyplot(fig)
-    except Exception as chart_exc:
-        st.warning(f"Could not render explanation chart: {chart_exc}")
-
-    st.markdown("### Key drivers")
-    for contrib in contributions:
-        direction_label = "increased" if contrib['direction'] == 'risk_increase' else "helped lower"
-        st.write(
-            f"- **{contrib['feature']}** {direction_label} your risk by approximately "
-            f"{abs(contrib['impact']):.1f}%. {contrib['explanation']}"
-        )
-
-    if show_actionable:
-        actionable = []
-        for contrib in contributions:
-            feature = contrib.get('feature', '')
-            direction = contrib.get('direction')
-            if feature.startswith('Physical activity') and direction == 'risk_decrease':
-                actionable.append("Keep up a consistent physical activity routine to maintain this benefit.")
-            if feature.startswith('Systolic') or feature.startswith('Diastolic'):
-                actionable.append("Discuss blood pressure management strategies with your doctor.")
-            if feature.startswith('Cholesterol'):
-                actionable.append("Adopt a heart-healthy diet to bring cholesterol down.")
-            if feature.startswith('Smoking'):
-                actionable.append("Seek support to quit smoking and reduce cardiovascular strain.")
-            if feature.startswith('Body mass index'):
-                actionable.append("Work on gradual weight loss through calorie control and activity.")
-        if actionable:
-            st.markdown("**Actionable tips**")
-            for tip in actionable[:3]:
-                st.write(f"- {tip}")
+    st.info('General health context from hand-written rules, not an explanation of this model. No per-factor percentage or SHAP/LIME attribution has been measured.')
+    for item in contributions or []:
+        st.write(f"**{item.get('feature', 'Factor')}**: {item.get('explanation', '')}")
 
 
 def _render_explainability_trend(rows):
-    if not rows:
-        st.caption("No historical explainability data available yet.")
-        return
-    trend_df = pd.DataFrame(rows, columns=["ts", "feature", "impact", "direction"])
-    if trend_df.empty:
-        st.caption("No explainability history to display.")
-        return
-    trend_df['impact_signed'] = trend_df.apply(
-        lambda row: row['impact'] if row['direction'] == 'risk_increase' else -abs(row['impact']),
-        axis=1
-    )
-    trend_df['ts'] = pd.to_datetime(trend_df['ts'])
-    trend_chart = (
-        alt.Chart(trend_df)
-        .mark_line(point=True)
-        .encode(
-            x=alt.X('ts:T', title='Assessment time'),
-            y=alt.Y('impact_signed:Q', title='Impact on risk (%)'),
-            color='feature:N',
-            tooltip=['ts:T', 'feature:N', 'impact_signed:Q']
-        )
-        .properties(height=260)
-    )
-    st.altair_chart(trend_chart, use_container_width=True)
+    st.caption("Per-factor effects have not been measured. The old rule-based attribution chart is intentionally not shown.")
 
 
 def _generate_patient_pdf_report(patient_name, chart_df, explain_rows, patient_data=None, risk_score=None, risk_category=None):
@@ -1353,30 +1031,10 @@ def _generate_patient_pdf_report(patient_name, chart_df, explain_rows, patient_d
         if not chart_df.empty:
             fig = plt.figure(figsize=(8.27, 11.69))
             
-            # Risk Contribution Chart
             ax1 = fig.add_subplot(2, 1, 1)
-            ax1.set_title('Risk Contribution by Factor', fontsize=12, fontweight='bold', color='#2C3E50', pad=15)
-            
-            if explain_rows and len(explain_rows) > 0:
-                exp_df = pd.DataFrame(explain_rows, columns=["ts", "feature", "impact", "direction"])
-                exp_df["impact_signed"] = exp_df.apply(
-                    lambda row: row["impact"] if row["direction"] == "risk_increase" else -abs(row["impact"]),
-                    axis=1,
-                )
-                agg = exp_df.groupby("feature")["impact_signed"].mean().sort_values()
-                
-                features = agg.index.tolist()[-10:]  # Top 10
-                impacts = agg.values.tolist()[-10:]
-                colors = ['#E74C3C' if v > 0 else '#27AE60' for v in impacts]
-                
-                ax1.barh(features, impacts, color=colors, edgecolor='#34495E', linewidth=0.5)
-                ax1.set_xlabel('Impact on Risk Score (%)', fontsize=10, color='#34495E')
-                ax1.set_ylabel('Risk Factor', fontsize=10, color='#34495E')
-                ax1.axvline(0, color='#34495E', linewidth=1, linestyle='--')
-                ax1.grid(axis='x', alpha=0.3, linestyle=':')
-                ax1.spines['top'].set_visible(False)
-                ax1.spines['right'].set_visible(False)
-            
+            ax1.axis('off')
+            ax1.text(0.05, 0.8, 'Research demo only. Not a diagnosis.\nPer-factor effects have not been measured.\nNo SHAP/LIME attribution or clinical calibration is claimed.', fontsize=11)
+
             # Historical Trend
             ax2 = fig.add_subplot(2, 1, 2)
             ax2.set_title('Risk Trend Over Time', fontsize=12, fontweight='bold', color='#2C3E50', pad=15)
@@ -1541,7 +1199,8 @@ from sklearn.ensemble import RandomForestClassifier
 # import genetic_selection  # Commented out due to sklearn version compatibility issue
 
 def login_page():
-    st.title("🔑 Login to CheckYourHeartHealth")
+    st.title("CheckYourHeartHealth")
+    st.caption("A cardiovascular machine-learning study. Sign in to explore with fictional data.")
     
     # Toggle between Login and Register
     login_tab, register_tab = st.tabs(["Login", "Register"])
@@ -1705,21 +1364,16 @@ def show_risk_prediction_page(predictor_ready: bool):
     target_id = _assessment_target('risk_patient_target')
     if target_id is None:
         return
-    st.markdown("""
-    # Cardiovascular risk demo
-    
-    Estimate cardiovascular risk from basic health data. This is a learning project (measured tabular ML models, about 73% accurate on a held-out test set), not medical advice.
-    """)
+    st.header("Risk assessment")
+    st.caption("Explore how the model responds to health measurements. Held-out accuracy: 73.46%. This is a research score, not a personal medical prognosis.")
     
     # Two-column layout for main content
-    col1, col2 = st.columns(2)
+    col1, col2 = st.columns([2, 1], gap="large")
     
     with col1:
-        # Patient Details Card
-        st.subheader("Patient Details")
         
         with st.form("prediction_form"):
-            st.subheader("Patient Information")
+            st.subheader("1. Profile")
 
             col1_inner, col2_inner = st.columns(2)
             with col1_inner:
@@ -1731,14 +1385,14 @@ def show_risk_prediction_page(predictor_ready: bool):
                 gender = st.selectbox("Gender", ["Female", "Male"], index=0, key="gender_input")
                 age = st.number_input("Age", min_value=18, max_value=100, value=50, step=1, format="%d", key="age_input")
 
-            st.markdown("### Body Measurements")
+            st.markdown("### 2. Measurements")
             col1_meas, col2_meas = st.columns(2)
             with col1_meas:
                 height = st.number_input("Height (cm)", min_value=140, max_value=220, value=170, step=1, format="%d", key="height_input")
             with col2_meas:
                 weight = st.number_input("Weight (kg)", min_value=40, max_value=200, value=70, step=1, format="%d", key="weight_input")
 
-            st.markdown("### Blood Pressure")
+            st.markdown("### 3. Blood pressure")
             bp_col1, bp_col2 = st.columns(2)
             with bp_col1:
                 ap_hi = st.number_input("Systolic BP (mmHg)", min_value=90, max_value=250, value=120, step=1, format="%d", key="ap_hi_input")
@@ -1773,24 +1427,15 @@ def show_risk_prediction_page(predictor_ready: bool):
             submitted = st.form_submit_button("Calculate Risk")
         
     with col2:
-        # Risk Meter Card
-        st.subheader("Risk Meter")
-        
-        # Placeholder for risk meter (will be updated when calculation is done)
-        st.info("Risk meter will be displayed after calculation")
-        
-        # Top Risk Factors Card
-        st.subheader("Top Risk Factors")
-        st.info("Risk factors will be displayed after calculation")
-        
-        # Recommended Actions Card
-        st.subheader("Recommended Actions")
-        st.info("Recommendations will be displayed after calculation")
-        
-    # Bottom section for charts and additional features
-    st.subheader("Feature Importance")
-    st.info("Feature importance chart will be displayed after calculation")
-    
+        st.subheader("Before you begin")
+        st.write("Use fictional information only. Enter blood pressure as systolic / diastolic and check the measurement units.")
+        st.divider()
+        st.caption("ABOUT THE MODEL")
+        st.write("LightGBM, Random Forest and a small tabular Transformer feed a logistic-regression combiner.")
+        st.caption("Test AUC 0.8009 · 13,110 held-out records")
+        st.divider()
+        st.write("This app does not diagnose disease, measure treatment benefits or support emergency decisions.")
+
     # Handle form submission
     if submitted:
         if "user_id" not in st.session_state:
@@ -1927,7 +1572,7 @@ def show_risk_prediction_page(predictor_ready: bool):
                     conn.commit()
                     conn.close()
                     
-                st.success("Analysis Complete!")
+                st.subheader("Assessment result")
                 
                 # Update risk meter display
                 risk_class = "risk-low" if risk_score < 30 else "risk-medium" if risk_score < 60 else "risk-high"
@@ -1989,7 +1634,7 @@ def show_risk_prediction_page(predictor_ready: bool):
                         st.metric("Age×BP Risk", f"{age * ap_hi:.0f}")
 
                 # Add explainability section after engineered features
-                st.subheader("Why this score? Explanation & Insights")
+                st.subheader("General health context (rule-based)")
                 _render_explainability_section(contributions)
 
                 recommendations = _generate_recommendations(user_data)
@@ -2001,7 +1646,7 @@ def show_risk_prediction_page(predictor_ready: bool):
                 scenarios = _evaluate_what_if_scenarios(user_data, risk_score)
                 st.subheader("What-if Analysis")
                 if scenarios:
-                    st.caption("Explore how targeted lifestyle changes could shift your projected risk.")
+                    st.caption("Hypothetical changes to model inputs only. These are not measured treatment effects or promises about your future health.")
                     for scenario in scenarios[:4]:
                         reduction = -scenario["delta"]
                         card = st.container()
@@ -2988,7 +2633,7 @@ def main_app():
                     
                     if latest_input:
                         contributions = _estimate_feature_contributions(latest_input, latest_score)
-                        with st.expander("Why this score? Explanation & Insights", expanded=False):
+                        with st.expander("General health context (rule-based)", expanded=False):
                             _render_explainability_section(contributions)
                 
                 st.dataframe(
@@ -4010,7 +3655,7 @@ def main_app():
                                 # Add explainability for doctor review (latest assessment)
                                 latest_score = assessments[0][3]
                                 contributions = _estimate_feature_contributions(latest_input, latest_score)
-                                with st.expander("Risk Factors Explanation (Doctor View)", expanded=False):
+                                with st.expander("General health context (rule-based)", expanded=False):
                                     _render_explainability_section(contributions, show_actionable=True)
                                 vitals_cols[2].metric("BMI", round(latest_input.get("BMI", latest_input.get("bmi", 0)), 1) if latest_input.get("BMI") or latest_input.get("bmi") else "-")
                                 vitals_cols[2].metric("Activity", "Yes" if latest_input.get("active") else "No")
