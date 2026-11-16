@@ -1199,6 +1199,7 @@ from sklearn.ensemble import RandomForestClassifier
 # import genetic_selection  # Commented out due to sklearn version compatibility issue
 
 def login_page():
+    apply_custom_styles()
     st.title("CheckYourHeartHealth")
     st.caption("A cardiovascular machine-learning study. Sign in to explore with fictional data.")
     
