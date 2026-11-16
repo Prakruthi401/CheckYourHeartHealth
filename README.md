@@ -6,7 +6,7 @@ It is a learning project. Don't use it to make real health decisions.
 
 ## What actually works
 
-- **Risk prediction.** You enter age, height, weight, blood pressure, cholesterol, glucose, smoking, alcohol and activity. A LightGBM model trained on the Kaggle cardiovascular disease dataset (about 65,500 rows after cleaning) gives a risk percentage.
+- **Risk prediction.** You enter age, height, weight, blood pressure, cholesterol, glucose, smoking, alcohol and activity. The stacking ensemble trained on the Kaggle cardiovascular disease dataset (about 65,500 rows after cleaning) gives a risk percentage.
 - **Accounts and roles.** Patient, doctor and admin logins, backed by SQLite. Doctors can see linked patients, leave notes and get alerts.
 - **History and what-if.** Repeat risk scores are saved per patient. What-if scenarios run through the risk model. The factor breakdown still uses hand-written rules, not SHAP or LIME.
 - **3D heart viewer.** An open-source Three.js heart model embedded in a page.
@@ -20,14 +20,14 @@ Measured on a held-out 20% test split (13,110 rows the model never saw during tr
 | Logistic regression (baseline) | 72.3% | 0.789 |
 | Random forest | 73.1% | 0.800 |
 | Transformer (small, tabular) | 73.4% | 0.799 |
-| LightGBM (what the live app uses) | 73.4% | 0.801 |
-| Stacked ensemble (LightGBM + RF + Transformer, logistic-regression combiner) | 73.5% | 0.801 |
+| LightGBM | 73.4% | 0.801 |
+| Stacked ensemble (app default: LightGBM + RF + Transformer, logistic-regression combiner) | 73.5% | 0.801 |
 
 The ensemble is within noise of LightGBM. The measured gap is just 0.07 percentage points of accuracy. I have not measured confidence intervals or repeated-seed variation, so I cannot call that a meaningful improvement. These runs do not prove a hard limit on the dataset. I built the ensemble to learn stacking.
 
 5-fold cross-validation on the training part gave 73.1% accuracy and 0.799 AUC for LightGBM.
 
-The trained ensemble file (about 5 MB) is not in the repo, because I could not upload it from the GitHub web page. Run `python src/risk_prediction/train_ensemble.py` (about 7 minutes) and the app picks it up automatically. Without it the app uses LightGBM.
+The app loads the trained ensemble by default. Its artifact is stored as base64 chunks with a checksum because direct binary upload failed. No training is needed to use it. If those files cannot load, the app tries LightGBM and reports the model used. If neither loads, no score is produced. To retrain the ensemble, run `python src/risk_prediction/train_ensemble.py`.
 
 One caveat: the repo only has a standardized copy of the dataset, so I recovered the original units (years, cm, kg, mmHg) from it. They are close, not guaranteed identical to the original file.
 
@@ -72,3 +72,11 @@ python src/risk_prediction/train_model.py
 That writes the model file and `src/risk_prediction/metrics.json`.
 
 Secrets go in your own `.env` file (not committed). The app reads them with python-dotenv.
+
+## Accounts and demo limits
+
+Public signup creates a patient account only. Passwords need at least 12 characters and use salted PBKDF2-SHA256. Existing SHA256 passwords upgrade after a successful login. Inactive users cannot sign in. A local operator can provision the first administrator with `python provision_user.py USERNAME --role admin --name "Name"`; passwords are entered through a hidden prompt. Administrators can provision doctor accounts. There are no committed demo credentials.
+
+Doctors can assess only linked patients, and the result is saved to that patient's ID. Patient self-linking and administrator-managed links are available. ECG model scores are kept separate from tabular risk trends and do not trigger critical-finding alerts. The application's other score alerts are demo rules, not medical warnings.
+
+Use fictional information only. This is not a production clinical system: it lacks independently reviewed security, persistent hosted storage, verified clinician identities, and clinical validation. The login throttle is session-local, not a distributed defense. SQLite history survives local restarts, but Streamlit Community Cloud disk is not durable and can reset on redeploy/reboot. Real patient history requires an external database and a separate privacy/security design.
