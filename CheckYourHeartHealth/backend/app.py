@@ -1,3 +1,5 @@
+import html
+import time
 # app.py  (Streamlit wrapper for Transformer Heart Disease Prediction with GA & PSO)
 import streamlit as st
 import streamlit.components.v1 as components
@@ -402,7 +404,19 @@ def _load_risk_model():
     import joblib
     try:
         from src.risk_prediction.ensemble import StackedRiskModel
-        return {"kind": "ensemble", "model": StackedRiskModel(joblib.load(_ENSEMBLE_PATH))}
+        if os.path.exists(_ENSEMBLE_PATH):
+            artifact = joblib.load(_ENSEMBLE_PATH)
+        else:
+            import hashlib
+            from pathlib import Path
+            folder = Path(_ENSEMBLE_PATH).parent
+            manifest = json.loads((folder / 'ensemble_manifest.json').read_text())
+            encoded = ''.join((folder / f).read_text().strip() for f in manifest['files'])
+            raw = base64.b64decode(encoded, validate=True)
+            if hashlib.sha256(raw).hexdigest() != manifest['sha256']:
+                raise ValueError('Ensemble weight checksum mismatch')
+            artifact = joblib.load(io.BytesIO(raw))
+        return {"kind": "ensemble", "model": StackedRiskModel(artifact)}
     except Exception as exc:
         print(f"[Ensemble unavailable, using LightGBM] {exc}")
     if not os.path.exists(_RISK_MODEL_PATH):
@@ -423,8 +437,7 @@ def _model_risk_percent(user_data):
         row = pd.DataFrame([data])[bundle["features"]]
         return float(bundle["model"].predict_proba(row)[0, 1]) * 100.0, "LightGBM (trained on the cardio dataset)"
     except Exception as exc:
-        print(f"[Risk model unavailable, using rule-based score] {exc}")
-        return float(_compute_rule_based_risk(user_data)), "Rule-based score (model unavailable)"
+        raise RuntimeError("No risk model is available. No score was produced.") from exc
 
 # Utility helpers
 def safe_log_action(admin_id, action, details=""):
@@ -1541,8 +1554,16 @@ def login_page():
             login_button = st.form_submit_button("Login")
             
             if login_button:
+                attempts = st.session_state.get('_login_attempts', [])
+                attempts = [stamp for stamp in attempts if time.time() - stamp < 60]
+                if len(attempts) >= 5:
+                    st.error('Too many attempts. Wait a minute and try again.')
+                    return
+                attempts.append(time.time())
+                st.session_state['_login_attempts'] = attempts
                 user = authenticate_user(username, password)
                 if user:
+                    st.session_state["_login_attempts"] = []
                     st.session_state.authenticated = True
                     st.session_state.username = username
                     st.session_state.user_id = user[0]
@@ -1556,26 +1577,23 @@ def login_page():
         with st.form("register_form"):
             st.subheader("Create New Account")
             new_username = st.text_input("Choose a username")
-            new_password = st.text_input("Choose a 6-digit password", type="password", 
-                                       help="Password must be exactly 6 digits")
+            new_password = st.text_input("Choose a password", type="password", 
+                                       help="Use at least 12 characters. Use a unique password for this demo.")
             confirm_password = st.text_input("Confirm password", type="password")
             full_name = st.text_input("Full Name")
             email = st.text_input("Email (optional)")
             phone = st.text_input("Phone Number (optional)")
             age = st.number_input("Age", min_value=1, max_value=120, value=30)
-            role = st.selectbox(
-                "Account Type",
-                ["patient", "doctor", "admin"],
-                help="Select the role for this account (admin accounts have full system access)",
-            )
-            
+            role = 'patient'
+            st.caption('Self-registration creates patient accounts only. An administrator provisions doctor/admin accounts. Use fictional data in this demo.')
+
             register_button = st.form_submit_button("Register")
             
             if register_button:
                 if not (new_username and new_password and full_name):
                     st.error("Please fill in all required fields")
-                elif len(new_password) != 6 or not new_password.isdigit():
-                    st.error("Password must be a 6-digit number")
+                elif len(new_password) < 12:
+                    st.error("Use at least 12 characters")
                 elif new_password != confirm_password:
                     st.error("Passwords do not match")
                 else:
@@ -1604,380 +1622,23 @@ def handle_oauth_callback():
     # OAuth callback handling has been removed
     pass
 
-def _generate_ecg_alert(record_id, condition, user_id=None, probability=None):
-    """Generate and save an alert for critical ECG findings.
-    
-    Args:
-        record_id: ID of the ECG record
-        condition: The detected condition
-        user_id: ID of the user (optional)
-        probability: Probability of the condition (0-1)
-    """
-    try:
-        # Determine severity based on condition type and probability
-        high_severity_conditions = [
-            'Ventricular Tachycardia',
-            'Atrial Fibrillation/Flutter',
-            'Ventricular Flutter Wave',
-            'Myocardial Infarction',
-            'Arrhythmia',
-            'Bundle Branch Block',
-            'Left Ventricular Hypertrophy'
-        ]
-        
-        # Check if condition is high severity and probability > 30%
-        if condition in high_severity_conditions and (probability is None or probability > 0.3):
-            severity = 'high'
-        else:
-            severity = 'medium'
-        
-        # Create alert message
-        message = f"ECG Alert: {condition} detected."
-        
-        # Save to database
-        alert_id = save_alert(
-            user_id=user_id,
-            alert_type='ecg_abnormality',
-            title=f"ECG Finding: {condition}",
-            message=message,
-            severity=severity,
-            status='new',
-            metadata={
-                'record_id': record_id,
-                'condition': condition
-            }
-        )
-        
-        # Log the alert
-        if user_id:
-            safe_log_action(
-                user_id,
-                f'ECG Alert Generated: {condition}',
-                f'Record: {record_id}, Severity: {severity}'
-            )
-        
-        return alert_id
-    except Exception as e:
-        print(f"Error generating ECG alert: {str(e)}")
-        return None
+def _assessment_target(key):
+    uid = st.session_state.get('user_id')
+    if st.session_state.get('user_role', 'patient').lower() == 'doctor':
+        patients = get_patients_for_doctor(uid)
+        if not patients:
+            st.info('No linked patients. A patient can link you from Health Summary, or an administrator can create a link.')
+            return None
+        options = {p['id']: p.get('name') or p['username'] for p in patients}
+        return st.selectbox('Patient for this assessment', list(options), format_func=lambda x: options[x], key=key)
+    return uid
 
-def _get_ecg_health_summary(record_data, result):
-    """Generate a health summary for the ECG analysis."""
-    if not result or 'class' not in result:
-        return {}
-        
-    condition = result['class']
-    confidence = result.get('confidence', 0) * 100
-    
-    summary = {
-        'status': 'normal' if condition == 'Normal Beat' else 'abnormal',
-        'condition': condition,
-        'confidence': confidence,
-        'recommendation': '',
-        'risk_level': 'low'
-    }
-    
-    if summary['status'] == 'abnormal':
-        condition = result['class']
-        
-        # High risk conditions
-        high_risk_conditions = [
-            'Ventricular Tachycardia', 
-            'Atrial Fibrillation/Flutter',
-            'Myocardial Infarction',
-            'Arrhythmia',
-            'Left Ventricular Hypertrophy',
-            'Bundle Branch Block'
-        ]
-        
-        # Get the probability of the detected condition
-        class_idx = result['probabilities']['class_names'].index(condition)
-        probability = result['probabilities']['values'][class_idx] if 'probabilities' in result else 0.5
-        
-        if condition in high_risk_conditions and probability > 0.3:
-            summary['risk_level'] = 'high'
-            summary['recommendation'] = (
-                f"URGENT: {condition} detected with high probability. "
-                f"Please seek immediate medical attention."
-            )
-        else:
-            summary['risk_level'] = 'medium'
-            summary['recommendation'] = (
-                f"Clinical review recommended. {condition} detected with "
-                f"{confidence:.1f}% confidence. Further evaluation suggested."
-            )
-    else:
-        summary['recommendation'] = "Normal sinus rhythm detected. No immediate action required."
-    
-    return summary
-
-    """Render the ECG analysis interface with role-based views."""
-    st.markdown(
-        """
-        <div style='text-align: center; margin-bottom: 2rem;'>
-            <h2 style='color: #4CAF50; margin-bottom: 0.5rem;'>ECG Analysis</h2>
-            <p style='color: #ddd;'>Analyze ECG signals using advanced machine learning models</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-    
-    # Initialize session state for alerts if not exists
-    if 'ecg_alerts' not in st.session_state:
-        st.session_state.ecg_alerts = {}
-    
-    # Record selection
-    st.subheader("Select Record")
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        record_id = st.text_input("MIT-BIH Record ID (e.g., 100, 101, 106, 118, 200):", value="100")
-    with col2:
-        st.markdown("<br>", unsafe_allow_html=True)
-        load_record = st.button("Load Record", key="load_mitbih")
-    
-    if load_record and record_id:
-        with st.spinner(f"Loading record {record_id} from MIT-BIH database..."):
-            try:
-                # Load the record
-                record_data = ecg_analyzer.load_ecg_record(record_id)
-                
-                if record_data is None:
-                    st.error(f"Failed to load record {record_id}. Please check the record ID and try again.")
-                else:
-                    st.session_state.current_mitbih_record = record_data
-                    st.session_state.show_mitbih_analysis = True
-                    st.success(f"Successfully loaded record: {record_data.get('record_name', 'N/A')}")
-            except Exception as e:
-                st.error(f"Error loading MIT-BIH record: {str(e)}")
-    
-    # Display record if loaded
-    if st.session_state.get('show_mitbih_analysis', False) and 'current_mitbih_record' in st.session_state:
-        record_data = st.session_state.current_mitbih_record
-        
-        # Record info
-        st.subheader("Record Information")
-        col1, col2 = st.columns(2)
-        with col1:
-            st.metric("Record ID", record_data.get('record_name', 'N/A'))
-            st.metric("Sampling Frequency", f"{record_data.get('fs', 'N/A')} Hz")
-        with col2:
-            st.metric("Signal Length", f"{len(record_data.get('signal', []))} samples")
-            st.metric("Annotations", f"{len(record_data.get('symbol', []))} beats")
-        
-        # Plot the ECG with annotations
-        st.subheader("ECG Signal with Annotations")
-        plot_buffer = ecg_analyzer.plot_ecg_with_annotations(record_data)
-        st.image(plot_buffer, use_container_width=True)
-        
-        # Add a button to analyze the signal
-        if st.button("Analyze Arrhythmia", key="analyze_mitbih"):
-            with st.spinner("Analyzing arrhythmia patterns..."):
-                try:
-                    # Make prediction using the ensemble model
-                    result = ecg_analyzer.predict_ensemble(record_data['signal'], fs=record_data.get('fs', 360))
-                    
-                    # Store results in session state
-                    st.session_state.mitbih_result = result
-                    
-                    # Display results
-                    st.success(f"Analysis complete!")
-                    
-                    # Show prediction
-                    st.subheader("Arrhythmia Detection")
-                    if result['class'] == 'Normal Beat':
-                        st.success(f"Prediction: {result['class']}")
-                    else:
-                        st.warning(f"Prediction: {result['class']}")
-                    
-                    # Show probability distribution
-                    st.subheader("Arrhythmia Probability Distribution")
-                    prob_df = pd.DataFrame({
-                        'Arrhythmia Type': result['probabilities']['class_names'],
-                        'Probability (%)': [p * 100 for p in result['probabilities']['values']]
-                    })
-                    st.bar_chart(prob_df.set_index('Arrhythmia Type'))
-                    
-                    # Show model contributions
-                    st.subheader("Model Confidence Levels")
-                    model_contribs = pd.DataFrame(result['model_contributions'])
-                    model_contribs.index = result['probabilities']['class_names']
-                    model_contribs = model_contribs * 100  # Convert to percentage
-                    st.bar_chart(model_contribs)
-                    
-                    # Add clinical notes based on prediction
-                    st.subheader("Clinical Notes")
-                    if result['class'] == 'Normal Beat':
-                        st.success("Normal sinus rhythm detected. No significant arrhythmias found in this recording.")
-                    else:
-                        st.warning(f"Clinical Attention Recommended\n\
-A {result['class'].lower()} was detected. Please review the full recording and consider further clinical evaluation.")
-                    
-                    # Generate health summary
-                    health_summary = _get_ecg_health_summary(record_data, result)
-                    
-                    # Save the analysis to database if user is logged in
-                    if 'user' in st.session_state:
-                        try:
-                            # Save the plot to a temporary file
-                            temp_file = io.BytesIO()
-                            plot_buffer.seek(0)
-                            temp_file.write(plot_buffer.read())
-                            temp_file.seek(0)
-                            
-                            # Save to database
-                            save_ecg_assessment(
-                                user_id=st.session_state.user['id'],
-                                assessment_type="MIT-BIH Arrhythmia",
-                                result=result['class'],
-                                confidence=result['confidence'],
-                                details=json.dumps({
-                                    'record_id': record_data.get('record_name', 'N/A'),
-                                    'probabilities': result['probabilities'],
-                                    'model_contributions': result['model_contributions'],
-                                    'health_summary': health_summary
-                                }),
-                                image_data=temp_file.getvalue(),
-                                created_at=datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                            )
-                            
-                            # Generate alert for abnormal findings
-                            if result['class'] != 'Normal Beat':
-                                # Get the probability of the predicted class
-                                class_idx = result['probabilities']['class_names'].index(result['class'])
-                                probability = result['probabilities']['values'][class_idx]
-                                
-                                alert_id = _generate_ecg_alert(
-                                    record_id=record_data.get('record_name', 'N/A'),
-                                    condition=result['class'],
-                                    user_id=st.session_state.user['id'],
-                                    probability=probability
-                                )
-                                if alert_id:
-                                    st.session_state.ecg_alerts[record_data.get('record_name', 'N/A')] = {
-                                        'alert_id': alert_id,
-                                        'condition': result['class'],
-                                        'confidence': result['confidence'] * 100,
-                                        'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-                                    }
-                            
-                            st.success("Analysis saved to your records.")
-                            
-                            # Update health summary in session state
-                            if 'health_summary' not in st.session_state:
-                                st.session_state.health_summary = {}
-                            st.session_state.health_summary['ecg'] = health_summary
-                            
-                        except Exception as e:
-                            st.warning(f"Could not save analysis to database: {str(e)}")
-                    
-                    # Display role-based explanations
-                    st.subheader("Analysis Details")
-                    
-                    if role_lower == 'doctor':
-                        # Doctor's view - Detailed technical explanation
-                        with st.expander("Clinical Insights (Doctor's View)", expanded=True):
-                            st.markdown("""
-                            ### Model Analysis
-                            The following chart shows the analysis from each model in the ensemble:
-                            """)
-                            
-                            # Show model contributions in detail
-                            model_contribs = pd.DataFrame(result['model_contributions'])
-                            model_contribs.index = result['probabilities']['class_names']
-                            model_contribs = model_contribs * 100  # Convert to percentage
-                            
-                            # Show detailed model metrics
-                            st.dataframe(
-                                model_contribs.style
-                                .background_gradient(cmap='YlOrRd', axis=1)
-                                .format('{:.1f}%'),
-                                use_container_width=True
-                            )
-                            
-                            # Show feature importance if available
-                            if 'feature_importance' in result:
-                                st.markdown("### Key Features Influencing Prediction")
-                                features = result['feature_importance']
-                                features_df = pd.DataFrame({
-                                    'Feature': list(features.keys()),
-                                    'Importance': list(features.values())
-                                }).sort_values('Importance', ascending=False)
-                                st.bar_chart(features_df.set_index('Feature'))
-                            
-                            # Show clinical notes
-                            st.markdown("### Clinical Notes")
-                            if result['class'] != 'Normal Beat':
-                                st.warning(f"Potential {result['class']} detected. Consider the following actions:")
-                                st.markdown("""
-                                - Review the full ECG recording
-                                - Compare with previous ECGs if available
-                                - Consider additional diagnostic tests
-                                - Document findings in patient's medical record
-                                """)
-                            else:
-                                st.success("No significant arrhythmias detected in this recording.")
-                                
-                    else:
-                        # Patient's view - Simplified explanation
-                        with st.expander("Your ECG Results", expanded=True):
-                            if result['class'] == 'Normal Beat':
-                                st.success("Your ECG appears normal")
-                                st.markdown("""
-                                Your heart rhythm looks regular with no signs of significant arrhythmias.
-                                
-                                What this means:
-                                - Your heart is beating in a normal, regular pattern
-                                - No immediate concerns were detected
-                                - Continue with your regular check-ups
-                                """)
-                            else:
-                                st.warning(f"{result['class']} Detected")
-                                st.markdown(f"""
-                                Our analysis detected {result['class']} with {result['confidence']*100:.1f}% confidence.
-                                
-                                Next Steps:
-                                - Don't panic, but do schedule a follow-up with your doctor
-                                - Share these results with your healthcare provider
-                                - Monitor for symptoms like dizziness, chest pain, or shortness of breath
-                                - Keep a log of any unusual symptoms
-                                
-                                Note: This is an automated analysis and should be reviewed by a healthcare professional.
-                                """)
-                            
-                            # Show simple visualization
-                            st.markdown("Your Heart Rhythm")
-                            st.image(plot_buffer, use_container_width=True, caption="Your ECG Signal with Annotations")
-                    
-                except Exception as e:
-                    st.error(f"Error during arrhythmia analysis: {str(e)}")
-    
-    # Add information about ECG analysis
-    with st.expander("About ECG Analysis", expanded=False):
-        st.markdown("""
-        ## Understanding Your ECG Analysis
-        
-        This tool uses advanced machine learning models to analyze ECG signals and detect various cardiac conditions.
-        
-        Supported Conditions:
-        - Normal sinus rhythm
-        - Atrial premature beats
-        - Premature ventricular contractions
-        - Bundle branch blocks
-        - Ventricular tachycardia
-        - Atrial fibrillation/flutter
-        - And more...
-        
-        How it works:
-        1. The system analyzes the electrical activity of your heart
-        2. Multiple AI models evaluate the signal patterns
-        3. Results are combined for the most accurate diagnosis
-        4. A confidence score indicates the reliability of the prediction
-        
-        Note: This tool is for informational purposes only and should not replace professional medical advice.
-        """)
 
 def _render_ecg_page(role_lower: str):
     st.header('ECG signal classification')
+    target_id = _assessment_target('ecg_patient_target')
+    if target_id is None:
+        return
     st.warning('Research demo only. These scores are not a diagnosis, and do not rule out heart disease. Do not use this app for urgent symptoms.')
     st.caption('1D-CNN trained on PTB-XL 1.0.3. Official patient-wise folds 1-8 / 9 / 10. Held-out macro AUC: 0.930. This is not 93% accuracy.')
     st.write('Upload a 10-second, 100 Hz, 12-lead signal in millivolts. CSV must have 1000 rows and the lead columns below. Photos and scans are not supported.')
@@ -1999,135 +1660,12 @@ def _render_ecg_page(role_lower: str):
                 st.bar_chart(pd.DataFrame({'Score': scores}))
                 st.caption('Independent sigmoid scores, not percentages of certainty. They need not add to 1. No clinical threshold or calibration was validated.')
                 top = max(scores, key=scores.get)
-                uid = st.session_state.get('user_id')
+                uid = target_id
                 if uid:
                     save_ecg_assessment(uid, 'Top score: '+top, scores[top], scores, patient_summary='Research-only multi-label CNN scores. Not a diagnosis.')
                     st.success('Saved to your ECG history.')
         except Exception as exc:
             st.error(str(exc))
-
-
-def _render_explanation_section(role_lower: str):
-    """Render the explanation section with audience-specific details."""
-    prediction = st.session_state.get('ecg_prediction')
-    if not prediction:
-        st.info("Upload and analyze an ECG to view detailed explanations.")
-        return
-
-    st.write("---")
-    st.subheader("Analysis Details")
-    
-    # Audience selection
-    audience = st.radio(
-        "Select explanation type:", 
-        ["Patient View", "Doctor View"],
-        key="audience_radio"
-    )
-    
-    if st.button("Generate Explanation"):
-        try:
-            with st.spinner("Generating explanation..."):
-                if audience == "Patient View":
-                    with st.expander("Your ECG Results", expanded=True):
-                        st.write("### What This Means For You")
-                        if prediction['class'] == 'Normal Beat':
-                            st.success("Your ECG shows a normal heart rhythm. No immediate action is needed.")
-                        else:
-                            st.warning(f"{prediction['class']} Detected")
-                            st.write("**What this means:**")
-                            st.write(_get_patient_explanation(prediction['class']))
-                            st.write("**Recommended actions:**")
-                            st.write(_get_patient_guidance(prediction['class']))
-                            
-                        # Add AI explanation
-                        st.markdown("---")
-                        st.write("### How the AI Made This Decision")
-                        st.write("Our AI system analyzed your ECG using multiple advanced models that look for specific patterns in the heart's electrical activity. The system combines insights from these models to make the most accurate prediction possible.")
-                        
-                        if 'probabilities' in prediction:
-                            st.write("**Confidence Levels:**")
-                            prob_list = list(zip(prediction['probabilities']['class_names'], prediction['probabilities']['values']))
-                            prob_list.sort(key=lambda x: x[1], reverse=True)
-                            for class_name, prob in prob_list[:3]:  # Show top 3
-                                st.write(f"- {class_name}: {prob*100:.1f}% confidence")
-                else:
-                    with st.expander("Clinical Insights", expanded=True):
-                        st.write("### Detailed Analysis")
-                        st.write(f"**Prediction:** {prediction['class']}")
-                        
-                        # Show probability distribution
-                        if 'probabilities' in prediction:
-                            prob_df = pd.DataFrame({
-                                'Condition': prediction['probabilities']['class_names'],
-                                'Probability': [f"{p*100:.1f}%" for p in prediction['probabilities']['values']]
-                            })
-                            st.dataframe(
-                                prob_df.style.highlight_max(axis=0),
-                                use_container_width=True
-                            )
-                        
-                        # Show model contributions if available
-                        if 'model_contributions' in prediction and prediction['model_contributions']:
-                            st.write("### Model Agreement")
-                            model_contribs = pd.DataFrame(prediction['model_contributions'])
-                            st.bar_chart(model_contribs.T)
-                        
-                        # Show clinical notes
-                        st.write("### Clinical Notes")
-                        st.write(_get_clinical_notes(prediction['class']))
-                        
-                        # Add AI explanation for doctors
-                        st.markdown("---")
-                        st.write("### AI Decision Process")
-                        st.write("The AI system uses an ensemble of three models to analyze ECG patterns:")
-                        st.write("1. EfficientNet - A deep convolutional neural network specialized for image recognition")
-                        st.write("2. Custom CNN - A specialized neural network designed for ECG analysis")
-                        st.write("3. Random Forest - A machine learning model that analyzes extracted ECG features")
-                        st.write("The final prediction is a weighted combination of all three models, providing robust and accurate results.")
-                        
-                        if 'model_contributions' in prediction and prediction['model_contributions']:
-                            st.write("**Model Confidence Levels:**")
-                            for model_name, model_data in prediction['model_contributions'].items():
-                                st.write(f"- {model_name}: {model_data['confidence']*100:.1f}% confidence in predicting {model_data['prediction']}")
-                        
-        except Exception as e:
-            st.error(f"Failed to generate explanation: {str(e)}")
-
-def _get_patient_explanation(condition: str) -> str:
-    """Get patient-friendly explanation for a condition."""
-    explanations = {
-        'Normal Beat': "Your heart rhythm appears normal with no signs of abnormalities. This indicates a healthy heart rhythm with normal electrical conduction.",
-        'Myocardial Infarction': "This may indicate a previous heart attack or reduced blood flow to the heart muscle. A heart attack occurs when blood flow to part of the heart muscle is blocked, causing damage to the heart tissue.",
-        'Arrhythmia': "Your heart rhythm shows irregular patterns that may need further evaluation. An irregular heartbeat can be too fast, too slow, or irregular, and may be caused by various factors including heart disease or lifestyle factors.",
-        'Left Ventricular Hypertrophy': "The left side of your heart appears thickened, which can be caused by high blood pressure. This condition occurs when the heart's main pumping chamber works harder than normal, usually due to increased blood pressure.",
-        'Bundle Branch Block': "There's a delay in the electrical signals in your heart, which is common and often not serious. This affects how your heart contracts but often doesn't cause symptoms."
-    }
-    return explanations.get(condition, "Please consult with a healthcare provider for a detailed explanation.")
-
-def _get_patient_guidance(condition: str) -> str:
-    """Get patient guidance for a condition."""
-    guidance = {
-        'Normal Beat': "Continue with regular check-ups and maintain a heart-healthy lifestyle. Exercise regularly, eat a balanced diet, avoid smoking, and manage stress.",
-        'Myocardial Infarction': "Please schedule an appointment with a cardiologist for further evaluation. Seek immediate medical attention if you experience chest pain, shortness of breath, or other symptoms.",
-        'Arrhythmia': "Monitor your symptoms and discuss these findings with your doctor at your next visit. Keep track of any palpitations, dizziness, or shortness of breath.",
-        'Left Ventricular Hypertrophy': "Follow up with your doctor to check your blood pressure and heart health. Managing blood pressure through medication and lifestyle changes is crucial.",
-        'Bundle Branch Block': "This finding is often not serious, but please share these results with your doctor. They may want to monitor it or investigate underlying causes."
-    }
-    return guidance.get(condition, "Please consult with your healthcare provider for personalized advice.")
-
-def _get_clinical_notes(condition: str) -> str:
-    """Get clinical notes for healthcare providers."""
-    notes = {
-        'Normal Beat': "- Normal sinus rhythm\n- No significant ST-T changes\n- Normal axis and intervals\n- Regular rate and rhythm\n- No signs of ischemia or infarction",
-        'Myocardial Infarction': "- Consider serial troponins\n- Compare with previous ECGs if available\n- Evaluate for acute coronary syndrome\n- Look for ST elevation/depression and Q waves\n- Assess for reciprocal changes",
-        'Arrhythmia': "- Determine if atrial or ventricular in origin\n- Assess for underlying causes\n- Consider Holter monitoring if symptoms are intermittent\n- Evaluate for structural heart disease\n- Check electrolyte levels",
-        'Left Ventricular Hypertrophy': "- Evaluate for hypertension\n- Consider echocardiogram\n- Assess for diastolic dysfunction\n- Look for strain pattern in lateral leads\n- Check for left axis deviation",
-        'Bundle Branch Block': "- Determine if new or chronic\n- Evaluate for underlying heart disease\n- Consider need for additional testing\n- Assess for associated findings\n- Determine if left or right bundle branch block"
-    }
-    return notes.get(condition, "No specific clinical notes available. Use clinical judgment for further evaluation.")
-
-def _render_standard_ecg_analysis(role_lower: str):
-    _render_ecg_page(role_lower)
 
 
 def _render_risk_history(user_id):
@@ -2164,10 +1702,13 @@ def _render_risk_history(user_id):
 
 def show_risk_prediction_page(predictor_ready: bool):
     st.title("CheckYourHeartHealth")
+    target_id = _assessment_target('risk_patient_target')
+    if target_id is None:
+        return
     st.markdown("""
-    # Advanced Cardiovascular Risk Prediction
+    # Cardiovascular risk demo
     
-    Estimate cardiovascular risk from basic health data. This is a learning project (a stacked ML ensemble, about 73% accurate on a held-out test set), not medical advice.
+    Estimate cardiovascular risk from basic health data. This is a learning project (measured tabular ML models, about 73% accurate on a held-out test set), not medical advice.
     """)
     
     # Two-column layout for main content
@@ -2256,7 +1797,7 @@ def show_risk_prediction_page(predictor_ready: bool):
             st.error("Please log in to save your assessment")
             return
 
-        current_user_id = st.session_state.user_id
+        current_user_id = target_id
 
         user = get_user_by_username(st.session_state.username)
         if user:
@@ -2487,138 +2028,8 @@ def show_risk_prediction_page(predictor_ready: bool):
                 st.info("Try again or check if models are properly trained.")
 
     if st.session_state.get("user_id"):
-        _render_risk_history(st.session_state["user_id"])
+        _render_risk_history(target_id)
 
-
-def show_ecg_review_page(role_lower: str) -> None:
-    if role_lower not in ("doctor", "admin"):
-        st.error("ECG review is restricted to doctor and admin roles.")
-        return
-
-    st.header("ECG Review & Collaboration")
-    doctor_id = st.session_state.get("user_id")
-    if not doctor_id:
-        st.error("Doctor identification missing. Please log in again.")
-        return
-
-    st.caption("Review recent ECG classifications, add clinical notes, and share feedback with patients.")
-
-    assessments = get_ecg_assessments_for_doctor(doctor_id)
-    if not assessments:
-        st.info("No ECG assessments available for your patients yet.")
-        return
-
-    for record in assessments:
-        (
-            ecg_id,
-            assessment_id,
-            ts,
-            predicted_label,
-            confidence,
-            probabilities_json,
-            patient_summary,
-            doctor_summary,
-            patient_id,
-            patient_name,
-            patient_username,
-        ) = record
-
-        patient_display = patient_name or patient_username or f"Patient #{patient_id}"
-        with st.expander(f"{patient_display} — {predicted_label} ({float(confidence)*100:.1f}% confidence) — {ts}"):
-            try:
-                probabilities_map = json.loads(probabilities_json)
-            except Exception:
-                probabilities_map = {}
-
-            if probabilities_map:
-                prob_df = pd.DataFrame(
-                    [(cls, val) for cls, val in probabilities_map.items()],
-                    columns=["Class", "Probability"],
-                )
-                st.subheader("Probability Breakdown")
-                st.table(prob_df)
-
-            if doctor_summary:
-                try:
-                    doctor_summary_dict = json.loads(doctor_summary)
-                except Exception:
-                    doctor_summary_dict = doctor_summary
-            else:
-                doctor_summary_dict = None
-
-            if doctor_summary_dict:
-                st.subheader("Explainability Snapshot")
-                clinical_context = doctor_summary_dict.get("clinical_context") if isinstance(doctor_summary_dict, dict) else None
-                if clinical_context:
-                    st.write(f"**Clinical Context:** {clinical_context}")
-                shap_plot_path = doctor_summary_dict.get("shap_plot") if isinstance(doctor_summary_dict, dict) else None
-                if shap_plot_path and os.path.exists(shap_plot_path):
-                    st.image(shap_plot_path, caption="SHAP Feature Importance", use_container_width=True)
-                feature_importance = doctor_summary_dict.get("feature_importance") if isinstance(doctor_summary_dict, dict) else None
-                if isinstance(feature_importance, dict) and feature_importance:
-                    fi_df = pd.DataFrame(
-                        list(feature_importance.items()),
-                        columns=["Feature", "Importance"],
-                    ).head(10)
-                    st.table(fi_df)
-                limitations = doctor_summary_dict.get("model_limitations") if isinstance(doctor_summary_dict, dict) else None
-                if limitations:
-                    st.caption(f"Model Notes: {limitations}")
-
-            st.subheader("Patient-Facing Summary")
-            if patient_summary:
-                try:
-                    patient_summary_dict = json.loads(patient_summary)
-                except Exception:
-                    patient_summary_dict = patient_summary
-
-                if isinstance(patient_summary_dict, dict):
-                    summary_text = patient_summary_dict.get("summary")
-                    if summary_text:
-                        st.write(summary_text)
-                    guidance_text = patient_summary_dict.get("guidance")
-                    if guidance_text:
-                        st.info(guidance_text)
-                    probability_bar = patient_summary_dict.get("probability_bar")
-                    if probability_bar and os.path.exists(probability_bar):
-                        st.image(probability_bar, caption="Probability Bar", use_container_width=True)
-                else:
-                    st.write(patient_summary_dict)
-            else:
-                st.caption("No patient summary stored for this assessment.")
-
-            st.subheader("Clinical Collaboration")
-            note_cols = st.columns([3, 1])
-            with note_cols[0]:
-                note_key = f"doctor_note_{ecg_id}"
-                note_content = st.text_area(
-                    "Add a note for this patient",
-                    key=note_key,
-                    placeholder="Document follow-up actions, observations, or reminders",
-                )
-            with note_cols[1]:
-                if st.button(
-                    "Save Note",
-                    key=f"save_note_{ecg_id}",
-                    use_container_width=True,
-                    disabled=not note_content.strip(),
-                ):
-                    try:
-                        add_patient_note(doctor_id, patient_id, note_content.strip())
-                        st.success("Note saved.")
-                        st.rerun()
-                    except Exception as exc:
-                        st.error(f"Could not save note: {exc}")
-
-            existing_notes = get_patient_notes(doctor_id, patient_id)
-            if existing_notes:
-                st.markdown("**Recent Notes**")
-                for note_text, created_at in existing_notes:
-                    st.markdown(
-                        f"- *{created_at}* — {note_text}"
-                    )
-            else:
-                st.caption("No prior notes recorded for this patient.")
 
 def show_ga_feature_analysis_page(df):
     st.header("Genetic Algorithm Feature Selection")
@@ -2790,6 +2201,12 @@ def show_ga_feature_analysis_page(df):
                 st.error(f"Feature selection failed: {e}")
 
 def main_app():
+    st.caption('Educational demo. Use fictional information only. Not for diagnosis, treatment, or emergencies.')
+    current = get_user_by_id(st.session_state.get('user_id'))
+    if not current or not current[9]:
+        st.session_state.clear()
+        st.rerun()
+    st.session_state.user_role = current[3]
     try:
         df = _load_dataset(DATASET_PATH)
     except Exception as dataset_err:
@@ -2862,9 +2279,9 @@ def main_app():
 
         display_name = username
         if user and user[2]:
-            display_name = user[2]
+            display_name = html.escape(user[2])
 
-        initials = display_name[0].upper() if display_name else "U"
+        initials = html.escape((user[2] if user and user[2] else username)[0].upper()) if display_name else "U"
         role_icons = {"doctor": "", "patient": "", "admin": ""}
         role_icon = role_icons.get(role_lower, "")
 
@@ -2875,7 +2292,7 @@ def main_app():
                     <div class="user-avatar">{initials}</div>
                     <div>
                         <div class="user-name">{display_name}</div>
-                        <div class="user-username">@{username}</div>
+                        <div class="user-username">@{html.escape(username)}</div>
                         <div class="role-badge">{role_icon} {role.capitalize()}</div>
                     </div>
                 </div>
@@ -2901,6 +2318,7 @@ def main_app():
             nav_pages = [
                 "Overview",           # Admin system dashboard
                 "Alerts",             # Alert center
+                ECG_REVIEW_LABEL,
             ]
         else:
             # Base navigation for patients and doctors
@@ -2960,7 +2378,7 @@ def main_app():
 
         st.caption("Review recent ECG classifications, add clinical notes, and share feedback with patients.")
 
-        assessments = get_ecg_assessments_for_doctor(doctor_id)
+        assessments = get_recent_ecg_assessments(full=True) if role_lower == "admin" else get_ecg_assessments_for_doctor(doctor_id)
         if not assessments:
             st.info("No ECG assessments available for your patients yet.")
         else:
@@ -2980,7 +2398,7 @@ def main_app():
                 ) = record
 
                 patient_display = patient_name or patient_username or f"Patient #{patient_id}"
-                with st.expander(f"{patient_display} — {predicted_label} ({float(confidence)*100:.1f}% confidence) — {ts}"):
+                with st.expander(f"{patient_display} — {predicted_label} ({float(confidence)*100:.1f}% model score) — {ts}"):
                     try:
                         probabilities_map = json.loads(probabilities_json)
                     except Exception:
@@ -3127,7 +2545,7 @@ def main_app():
                                     conn.close()
                                     if ecg_row:
                                         predicted_label, confidence = ecg_row
-                                        ecg_info = f"<p><strong>ECG Diagnosis:</strong> {predicted_label} ({float(confidence)*100:.1f}% confidence)</p>"
+                                        ecg_info = f"<p><strong>ECG top model score:</strong> {predicted_label} ({float(confidence)*100:.1f}% model score)</p>"
                             except Exception:
                                 pass
                     except Exception:
@@ -3135,7 +2553,7 @@ def main_app():
                 
                 st.markdown(
                     f"<div style='background:#dc3545;color:white;padding:16px;border-radius:10px;margin-bottom:1rem;'>"
-                    f"<h4>CRITICAL ALERT - High Priority Patient</h4>"
+                    f"<h4>Demo alert - saved model score</h4>"
                     f"<p><strong>Patient:</strong> {patient_display}</p>"
                     f"<p><strong>Type:</strong> {alert_type.replace('_', ' ').title()}</p>"
                     f"{risk_score_info}"
@@ -3178,7 +2596,7 @@ def main_app():
                 latest_assessment_id = get_latest_assessment_id(user_id)
                 if latest_assessment_id:
                     try:
-                        insert_alert(user_id, latest_assessment_id, "progress_milestone", "Improvement achieved")
+                        insert_alert(user_id, latest_assessment_id, "progress_milestone", "Demo notification only: no measured improvement asserted")
                         st.success("Notification queued")
                     except Exception as exc:
                         st.error(str(exc))
@@ -3234,7 +2652,7 @@ def main_app():
                                         conn.close()
                                         if ecg_row:
                                             predicted_label, confidence = ecg_row
-                                            ecg_info = f" (ECG: {predicted_label}, {float(confidence)*100:.1f}% confidence)"
+                                            ecg_info = f" (ECG: {predicted_label}, {float(confidence)*100:.1f}% model score)"
                                 except Exception:
                                     pass
                         except Exception:
@@ -3491,14 +2909,14 @@ def main_app():
                                 conn.close()
                                 if ecg_row:
                                     predicted_label, confidence = ecg_row
-                                    ecg_info = f"<br><strong>ECG Diagnosis:</strong> {predicted_label} ({float(confidence)*100:.1f}% confidence)"
+                                    ecg_info = f"<br><strong>ECG top model score:</strong> {predicted_label} ({float(confidence)*100:.1f}% model score)"
                     except Exception:
                         pass
                 
                 st.markdown(
                     f"<div style='background:#e63946;color:white;padding:16px;border-radius:10px;margin-bottom:1rem;'>"
-                    f"<h4>High Alert</h4>"
-                    f"<b>Your cardiovascular risk requires attention.</b><br>"
+                    f"<h4>Demo score alert</h4>"
+                    f"<b>A saved model score triggered a demo rule.</b><br>"
                     f"{message}{ecg_info}<br>"
                     f"<span style='font-size:0.85rem;'>Recorded at {ts}</span>"
                     f"</div>",
@@ -3509,7 +2927,7 @@ def main_app():
                 col1, col2 = st.columns([1, 3])
                 with col1:
                     if st.button("Acknowledge Alert", key=f"acknowledge_{alert_id}"):
-                            acknowledge_alert(patient_id, assessment_id)
+                            acknowledge_alert(alert_id)
                             st.success("Alert acknowledged. Please contact your doctor for further guidance.")
                             st.rerun()
                 with col2:
@@ -3768,7 +3186,7 @@ def main_app():
                 patient_display = patient_name if patient_name else patient_username
                 st.markdown(
                     f"<div style='background:#dc3545;color:white;padding:16px;border-radius:10px;margin-bottom:1rem;'>"
-                    f"<h4>CRITICAL ALERT - High Priority Patient</h4>"
+                    f"<h4>Demo alert - saved model score</h4>"
                     f"<p><strong>Patient:</strong> {patient_display}</p>"
                     f"<p><strong>Type:</strong> {alert_type.replace('_', ' ').title()}</p>"
                     f"<p><strong>Message:</strong> {message}</p>"
@@ -4028,7 +3446,7 @@ def main_app():
             with st.form("admin_create_user_form"):
                 st.write("Create new account")
                 new_username_admin = st.text_input("Username")
-                new_password_admin = st.text_input("6-digit password", max_chars=6)
+                new_password_admin = st.text_input("Password (at least 12 characters)", type="password")
                 new_name_admin = st.text_input("Full name")
                 new_role_admin = st.selectbox("Role", ["patient", "doctor", "admin"])
                 new_email_admin = st.text_input("Email", value="")
