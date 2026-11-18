@@ -4,6 +4,8 @@ A Streamlit app that estimates heart disease risk from basic health data. I buil
 
 It is a learning project. Don't use it to make real health decisions.
 
+![Screen recording of the app in use](assets/heart-app-demo.gif)
+
 ## What actually works
 
 - **Risk prediction.** You enter age, height, weight, blood pressure, cholesterol, glucose, smoking, alcohol and activity. The stacking ensemble trained on the Kaggle cardiovascular disease dataset (about 65,500 rows after cleaning) gives a risk percentage.
