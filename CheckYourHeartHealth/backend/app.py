@@ -455,6 +455,133 @@ def _generate_recommendations(user_data):
     return recommendations
 
 
+def _generate_history_advice(assessments):
+    """Plain do/don't advice built from the patient's own assessment history.
+
+    assessments: rows of (id, ts, input_json, risk_score, risk_category, model_name),
+    newest first. Rule-based and honest - it only reflects the numbers the patient
+    actually recorded. Not medical advice.
+    """
+    dos = []
+    donts = []
+    notes = []
+
+    parsed = []
+    for row in assessments:
+        try:
+            _id, ts, input_json, score, category, _model = row
+            data = json.loads(input_json) if input_json else {}
+            parsed.append({"ts": ts, "score": score, "category": category, "data": data})
+        except Exception:
+            continue
+
+    if not parsed:
+        return dos, donts, notes
+
+    latest = parsed[0]
+    latest_data = latest["data"]
+    latest_score = latest["score"]
+
+    def _f(d, key):
+        try:
+            v = d.get(key)
+            return float(v) if v is not None else None
+        except (TypeError, ValueError):
+            return None
+
+    # Trend across assessments
+    if len(parsed) >= 2 and latest_score is not None:
+        prev = parsed[1]
+        prev_score = prev["score"]
+        if prev_score is not None:
+            delta = latest_score - prev_score
+            if delta >= 5:
+                notes.append(
+                    f"Your score went up between your last two checks ({prev_score:.1f}% -> {latest_score:.1f}%). "
+                    "Don't wait for symptoms - book a check-up and take these results along."
+                )
+            elif delta <= -5:
+                dos.append(
+                    f"Your score came down between your last two checks ({prev_score:.1f}% -> {latest_score:.1f}%). "
+                    "Keep doing whatever changed - consistency is what keeps it down."
+                )
+
+        first = parsed[-1]
+        if first["score"] is not None and len(parsed) >= 3:
+            overall = latest_score - first["score"]
+            if overall >= 10:
+                notes.append(
+                    f"Across your {len(parsed)} assessments the score has risen by {overall:.0f} points overall. "
+                    "That is a pattern worth discussing with a doctor, not a one-off."
+                )
+            elif overall <= -10:
+                dos.append(
+                    f"Across your {len(parsed)} assessments your score has dropped by {abs(overall):.0f} points. "
+                    "Your longer-term trend is moving the right way - protect it."
+                )
+
+    # Factors present in the majority of recorded assessments
+    def majority(flag_fn):
+        flags = [flag_fn(p["data"]) for p in parsed]
+        flags = [f for f in flags if f is not None]
+        if not flags:
+            return False
+        return sum(1 for f in flags if f) > len(flags) / 2
+
+    if majority(lambda d: (_f(d, "ap_hi") or 0) >= 130 or (_f(d, "ap_lo") or 0) >= 85):
+        donts.append("Don't add extra salt to food and go easy on pickles, papads and packaged snacks - your blood pressure readings have been on the high side in most of your assessments.")
+        dos.append("Check your blood pressure at roughly the same time of day, seated and rested, so your readings stay comparable over time.")
+    if majority(lambda d: (_f(d, "smoke") or 0) >= 1):
+        donts.append("Don't smoke - in your assessments it is one of the strongest drivers of a higher score. Quitting is the single biggest change available to you.")
+        dos.append("If quitting outright is hard, ask your doctor about a quit plan or nicotine replacement - it works better than willpower alone.")
+    if majority(lambda d: (_f(d, "alco") or 0) >= 1):
+        donts.append("Don't treat alcohol as harmless - your recorded scores were higher when alcohol use was marked. Cut down and keep several alcohol-free days each week.")
+    if majority(lambda d: (_f(d, "cholesterol") or 1) >= 2):
+        donts.append("Don't lean on fried food, red meat and ghee-heavy cooking - your cholesterol category has been above the desirable range in most of your checks.")
+        dos.append("Swap in more vegetables, whole grains, dal and nuts - small daily swaps show up in cholesterol within weeks.")
+    if majority(lambda d: (_f(d, "gluc") or 1) >= 2 or (_f(d, "diabetes") or 0) >= 1):
+        donts.append("Don't skip blood-sugar follow-ups - your glucose readings have been above the normal range. Sugary drinks and refined carbs are the first things to cut.")
+    if majority(lambda d: (_f(d, "BMI") or _f(d, "bmi") or 0) >= 25):
+        dos.append("Your recorded BMI has been above the healthy range in most assessments - even 5% weight loss measurably lowers blood pressure and blood sugar.")
+        donts.append("Don't chase crash diets - slow, steady changes are the ones that stay off.")
+    if majority(lambda d: (_f(d, "activity_hours_per_week") or 0) < 2.5):
+        dos.append("Build up to about 150 minutes of brisk walking or similar activity per week - your logged activity has been below that in most assessments.")
+
+    # Changes between the last two assessments
+    if len(parsed) >= 2:
+        prev_data = parsed[1]["data"]
+        bp_now = _f(latest_data, "ap_hi")
+        bp_prev = _f(prev_data, "ap_hi")
+        if bp_now is not None and bp_prev is not None and bp_now - bp_prev >= 10:
+            notes.append(f"Your systolic blood pressure rose from {bp_prev:.0f} to {bp_now:.0f} between your last two assessments.")
+        bmi_now = _f(latest_data, "BMI") or _f(latest_data, "bmi")
+        bmi_prev = _f(prev_data, "BMI") or _f(prev_data, "bmi")
+        if bmi_now is not None and bmi_prev is not None and bmi_prev - bmi_now >= 1:
+            dos.append("Your BMI improved between your last two checks - whatever you changed, it is working.")
+
+    return dos, donts, notes
+
+
+def _render_history_advice(assessments):
+    """Render the history-based advice block (shared by patient and doctor views)."""
+    dos, donts, notes = _generate_history_advice(assessments)
+    if not dos and not donts and not notes:
+        st.caption("Record a few assessments and plain, history-based advice will appear here.")
+        return
+    st.caption("Rule-based pointers from the recorded numbers - not a diagnosis and not a substitute for a doctor.")
+    for n in notes:
+        st.info(n)
+    col_do, col_dont = st.columns(2)
+    with col_do:
+        st.markdown("**Do**")
+        for d in dos:
+            st.markdown(f"- {d}")
+    with col_dont:
+        st.markdown("**Don't**")
+        for d in donts:
+            st.markdown(f"- {d}")
+
+
 def _evaluate_what_if_scenarios(user_data, baseline_risk):
     """Re-run the trained model with one change at a time (weight, smoking, blood pressure...) to see how the score moves."""
     scenarios = []
@@ -2640,6 +2767,10 @@ def main_app():
             else:
                 st.info("No assessments recorded yet. Complete a risk prediction to see your dashboard metrics.")
 
+            if assessments:
+                st.subheader("Advice from your assessment history")
+                _render_history_advice(assessments)
+
             # Add comprehensive PDF report section
             st.subheader("Comprehensive Health Report")
             st.markdown("Download a complete PDF report of your health history including risk predictions and ECG results.")
@@ -3072,6 +3203,19 @@ def main_app():
             with col3:
                 st.metric("Admins", counts["admins"])
                 st.metric("Unresolved Alerts", counts["unresolved_alerts"])
+
+            latest_by_patient = {}
+            for row in get_recent_assessments(50):
+                uname = row[1]
+                if uname not in latest_by_patient and row[4] is not None:
+                    latest_by_patient[uname] = (row[2] or uname, row[4], row[5], row[3])
+            high_risk_now = {u: v for u, v in latest_by_patient.items() if v[1] >= 40}
+            if high_risk_now:
+                st.markdown(f"**Patients currently in the high-risk band (latest assessment): {len(high_risk_now)}**")
+                for uname, (pname, score, cat, ts) in sorted(high_risk_now.items(), key=lambda kv: -kv[1][1]):
+                    st.write(f"- {pname} (@{uname}): {score:.1f}% ({cat}), recorded {ts}")
+            else:
+                st.caption("No patients are in the high-risk band on their latest assessment.")
             st.markdown("</div>", unsafe_allow_html=True)
 
             st.markdown('<div class="admin-card"><h3>User & Role Management</h3>', unsafe_allow_html=True)
@@ -3313,6 +3457,13 @@ def main_app():
             elif not patients:
                 st.info("No patients linked to your account yet.")
             else:
+                high_risk_count = sum(1 for p in patients if (p.get("risk_score") or 0) >= 40)
+                total_open_alerts = sum((p.get("unresolved_alerts") or 0) for p in patients)
+                stat1, stat2, stat3 = st.columns(3)
+                stat1.metric("Linked patients", len(patients))
+                stat2.metric("High risk (latest assessment)", high_risk_count)
+                stat3.metric("Unresolved alerts", total_open_alerts)
+
                 # High-level summary table of patients
                 st.subheader("Summary of your patients' recent assessments")
                 summary_rows = []
@@ -3412,6 +3563,9 @@ def main_app():
                                     st.markdown("**Explainability over time (overview report)**")
                                     _render_explainability_trend(explain_rows)
 
+                                    st.markdown("**Advice the patient is seeing (from their history)**")
+                                    _render_history_advice(assmts)
+
                                     try:
                                         pdf_bytes = _generate_patient_pdf_report(
                                             selected_name, chart_df, explain_rows
@@ -3437,7 +3591,7 @@ def main_app():
                 with col_filter1:
                     risk_filter = st.selectbox(
                         "Risk level",
-                        ["All", "High", "Moderate", "Low", "No Data"],
+                        ["All", "High", "Low", "No Data"],
                         key="doctor_patient_risk_filter",
                     )
                 with col_filter2:
@@ -3538,26 +3692,26 @@ def main_app():
                         color = "#2a9d8f"
                         level = "Low"
 
-                    alert_badge = f"<span style='background: #ffebee; color:#e63946; padding:2px 8px; border-radius:999px; font-size:0.8rem;'>Alerts: {alerts_count}</span>" if alerts_count else ""
+                    alert_badge = f"<span style='background: #3a1d24; color:#ff8a95; padding:2px 8px; border-radius:999px; font-size:0.8rem;'>Alerts: {alerts_count}</span>" if alerts_count else ""
 
                     st.markdown(
                         f"""
-                        <div style="background:#f0f0f0;border:1px solid #ddd;border-left:4px solid {color};border-radius:10px;padding:1rem;margin-bottom:1rem;">
+                        <div style="background:#1b2233;border:1px solid #2c3547;border-left:4px solid {color};border-radius:10px;padding:1rem;margin-bottom:1rem;">
                             <div style="display:flex;justify-content:space-between;align-items:center;">
                                 <div>
-                                    <div style="font-size:1.1rem;font-weight:600;color:#000;">{name}</div>
-                                    <div style="color:#666;font-size:0.9rem;">Age: {age}</div>
-                                    <div style="color:#666;font-size:0.9rem;">Last assessment: {last_label}</div>
+                                    <div style="font-size:1.1rem;font-weight:600;color:#e8eaed;">{name}</div>
+                                    <div style="color:#9aa4b2;font-size:0.9rem;">Age: {age}</div>
+                                    <div style="color:#9aa4b2;font-size:0.9rem;">Last assessment: {last_label}</div>
                                 </div>
                                 <div style="text-align:right;">
                                     <div style="font-size:1.4rem;font-weight:700;color:{color};">{risk_display}</div>
                                     <div style="color:{color};font-weight:600;">{level}</div>
-                                    <div style="color:#666;font-size:0.85rem;">{risk_category}</div>
+                                    <div style="color:#9aa4b2;font-size:0.85rem;">{risk_category}</div>
                                 </div>
                             </div>
                             <div style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;">
                                 {alert_badge or ''}
-                                <span style="background:#eee;padding:2px 8px;border-radius:999px;font-size:0.8rem;">🗓️ {last_label}</span>
+                                <span style="background:#2a3142;color:#c3cbd8;padding:2px 8px;border-radius:999px;font-size:0.8rem;">🗓️ {last_label}</span>
                             </div>
                         </div>
                         """,
