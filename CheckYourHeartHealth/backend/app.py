@@ -1054,15 +1054,15 @@ def _generate_patient_pdf_report(patient_name, chart_df, explain_rows, patient_d
         if patient_data:
             contributors = []
             if patient_data.get('ap_hi', 120) > 140:
-                contributors.append(('❗ High Blood Pressure', f"Systolic: {patient_data.get('ap_hi')} mmHg"))
+                contributors.append(('High Blood Pressure', f"Systolic: {patient_data.get('ap_hi')} mmHg"))
             if patient_data.get('cholesterol', 1) > 2:
-                contributors.append(('❗ Elevated Cholesterol', 'Above normal levels'))
+                contributors.append(('Elevated Cholesterol', 'Above normal levels'))
             if patient_data.get('smoke', 0) == 1:
-                contributors.append(('❗ Smoking Habit', 'Active smoker'))
+                contributors.append(('Smoking Habit', 'Active smoker'))
             if patient_data.get('BMI', 25) > 30:
-                contributors.append(('❗ Obesity', f"BMI: {patient_data.get('BMI', 0):.1f}"))
+                contributors.append(('Obesity', f"BMI: {patient_data.get('BMI', 0):.1f}"))
             if patient_data.get('active', 1) == 0:
-                contributors.append(('❗ Sedentary Lifestyle', 'No physical activity'))
+                contributors.append(('Sedentary Lifestyle', 'No physical activity'))
             
             for icon_text, desc in contributors[:5]:
                 ax.text(0.12, y_pos, icon_text, fontsize=9, color='#E74C3C', fontweight='bold')
@@ -1090,15 +1090,15 @@ def _generate_patient_pdf_report(patient_name, chart_df, explain_rows, patient_d
             vitals_data = [
                 ['Parameter', 'Value', 'Reference Range', 'Status'],
                 ['Systolic BP', f"{patient_data.get('ap_hi', 'N/A')} mmHg", '90-120 mmHg', 
-                 '✓ Normal' if patient_data.get('ap_hi', 120) <= 120 else '⚠ Elevated'],
+                 'Normal' if patient_data.get('ap_hi', 120) <= 120 else 'Elevated'],
                 ['Diastolic BP', f"{patient_data.get('ap_lo', 'N/A')} mmHg", '60-80 mmHg', 
-                 '✓ Normal' if patient_data.get('ap_lo', 80) <= 80 else '⚠ Elevated'],
+                 'Normal' if patient_data.get('ap_lo', 80) <= 80 else 'Elevated'],
                 ['Cholesterol', ['Normal', 'Above Normal', 'Well Above'][patient_data.get('cholesterol', 1)-1], 
-                 'Normal', '✓ Normal' if patient_data.get('cholesterol', 1) == 1 else '⚠ High'],
+                 'Normal', 'Normal' if patient_data.get('cholesterol', 1) == 1 else 'High'],
                 ['Glucose', ['Normal', 'Above Normal', 'Well Above'][patient_data.get('gluc', 1)-1], 
-                 'Normal', '✓ Normal' if patient_data.get('gluc', 1) == 1 else '⚠ High'],
+                 'Normal', 'Normal' if patient_data.get('gluc', 1) == 1 else 'High'],
                 ['BMI', f"{patient_data.get('BMI', 'N/A'):.1f}" if isinstance(patient_data.get('BMI'), (int, float)) else 'N/A', 
-                 '18.5-24.9', '✓ Normal' if patient_data.get('BMI', 25) < 25 else '⚠ Overweight'],
+                 '18.5-24.9', 'Normal' if patient_data.get('BMI', 25) < 25 else 'Overweight'],
                 ['Heart Rate', f"{patient_data.get('heart_rate', 'N/A')} bpm" if patient_data.get('heart_rate') else 'N/A', 
                  '60-100 bpm', 'N/A']
             ]
@@ -1120,9 +1120,9 @@ def _generate_patient_pdf_report(patient_name, chart_df, explain_rows, patient_d
             
             lifestyle_data = [
                 ['Factor', 'Status'],
-                ['Smoking', '✓ Non-Smoker' if patient_data.get('smoke', 0) == 0 else '⚠ Active Smoker'],
-                ['Alcohol Consumption', '✓ No' if patient_data.get('alco', 0) == 0 else '⚠ Yes'],
-                ['Physical Activity', '✓ Active' if patient_data.get('active', 1) == 1 else '⚠ Sedentary'],
+                ['Smoking', 'Non-Smoker' if patient_data.get('smoke', 0) == 0 else 'Active Smoker'],
+                ['Alcohol Consumption', 'No' if patient_data.get('alco', 0) == 0 else 'Yes'],
+                ['Physical Activity', 'Active' if patient_data.get('active', 1) == 1 else 'Sedentary'],
                 ['Activity Type', patient_data.get('activity_type', 'Not Specified')],
                 ['Activity Hours/Week', f"{patient_data.get('activity_hours_per_week', 0)} hours"]
             ]
@@ -3711,7 +3711,7 @@ def main_app():
                             </div>
                             <div style="margin-top:0.75rem;display:flex;gap:0.5rem;align-items:center;">
                                 {alert_badge or ''}
-                                <span style="background:#2a3142;color:#c3cbd8;padding:2px 8px;border-radius:999px;font-size:0.8rem;">🗓️ {last_label}</span>
+                                <span style="background:#2a3142;color:#c3cbd8;padding:2px 8px;border-radius:999px;font-size:0.8rem;">{last_label}</span>
                             </div>
                         </div>
                         """,
@@ -4031,7 +4031,7 @@ def main_app():
         _render_3d_viewer_page()
 
     elif page == "Lifestyle Coach":
-        st.header("🧠 Lifestyle Coach")
+        st.header("Lifestyle Coach")
         
         role = st.session_state.get("user_role", "patient")
         role_lower = role.lower()
@@ -4080,7 +4080,7 @@ def main_app():
                 if selected_patient:
                     patient_id = selected_patient.get('id')
                     st.markdown("---")
-                    st.subheader(f"📋 Plans for {selected_patient_name}")
+                    st.subheader(f"Plans for {selected_patient_name}")
                     
                     # Get patient's plans
                     patient_plans = get_lifestyle_plans(patient_id)
@@ -4119,7 +4119,7 @@ def main_app():
                     
                     # Create new plan form
                     with st.form(f"create_plan_lifestyle_{patient_id}"):
-                        st.subheader("➕ Create New Plan")
+                        st.subheader("Create New Plan")
                         plan_name = st.text_input("Plan Name", placeholder="e.g., 30-Day Fitness Challenge")
                         plan_desc = st.text_area("Description", placeholder="Describe the goals and expectations...")
                         
@@ -4224,7 +4224,7 @@ def main_app():
             total_completions = sum(p[13] for p in all_plans)  # completed_count at index 13
             
             # Display achievements
-            st.subheader("🏆 Your Achievements")
+            st.subheader("Your Achievements")
             col1, col2, col3, col4 = st.columns(4)
             with col1:
                 st.metric("Active Plans", len(active_plans))

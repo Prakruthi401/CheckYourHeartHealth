@@ -1,5 +1,7 @@
 # CheckYourHeartHealth
 
+**Live app:** https://checkyourhearthealth-ipgklkpqymkmdsknnxovb2.streamlit.app/
+
 A Streamlit app that estimates heart disease risk from basic health data. I built it as a student project, in a rush, and the first version made some things look like they worked when they didn't. This README is the honest version after going back through the code.
 
 It is a learning project. Don't use it to make real health decisions.

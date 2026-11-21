@@ -49,7 +49,7 @@ try:
         sys.path.insert(0, current_dir)
     from comprehensive_stacking_ensemble import ComprehensiveStackingEnsemble
 except Exception as e:
-    print(f"⚠️ Could not import ComprehensiveStackingEnsemble: {e}")
+    print(f"Could not import ComprehensiveStackingEnsemble: {e}")
     ComprehensiveStackingEnsemble = None
 
 class CardiovascularRiskCalculator:
@@ -70,16 +70,16 @@ class CardiovascularRiskCalculator:
         
     def load_models(self):
         """Load pre-trained models and data"""
-        print("🔄 Loading cardiovascular risk models...")
+        print("Loading cardiovascular risk models...")
         
         # Get the directory of the current script
         script_dir = os.path.dirname(os.path.abspath(__file__))
         data_path = os.path.join(script_dir, 'cardio_train_clean.csv')
         
         # Load the dataset
-        print(f"📊 Loading dataset from: {data_path}")
+        print(f"Loading dataset from: {data_path}")
         df = pd.read_csv(data_path)
-        print(f"📈 Dataset loaded: {len(df)} records")
+        print(f"Dataset loaded: {len(df)} records")
         self.scaler = self._fit_scaler(df)
         
         # Precompute statistical centroids in scaled space for efficiency
@@ -94,7 +94,7 @@ class CardiovascularRiskCalculator:
             if np.any(y == 0):
                 self.centroids_['non_cardio'] = X_scaled[y == 0].mean(axis=0)
         except Exception as e:
-            print(f"⚠️ Could not precompute centroids: {e}")
+            print(f"Could not precompute centroids: {e}")
         
         # Initialize models (we'll use pre-trained weights if available)
         try:
@@ -115,30 +115,30 @@ class CardiovascularRiskCalculator:
                     input_dim=12, epochs=50, lr=0.001
                 )
             if self.models:
-                print("✅ Optional models initialized where available.")
+                print("Optional models initialized where available.")
             else:
-                print("ℹ️ No optional model modules found; proceeding with rule/statistical methods.")
+                print("ℹNo optional model modules found; proceeding with rule/statistical methods.")
         except Exception as e:
-            print(f"⚠️ Model initialization error: {e}. Using simplified risk calculation...")
+            print(f"Model initialization error: {e}. Using simplified risk calculation...")
 
         # Try to load trained stacking ensemble (meta-learner + base models)
         if ComprehensiveStackingEnsemble is not None:
             try:
-                print("🔍 Attempting to load stacking ensemble...")
+                print("Attempting to load stacking ensemble...")
                 stacking = ComprehensiveStackingEnsemble()
                 load_result = stacking.load_trained_models()
-                print(f"📊 Load result: {load_result}")
+                print(f"Load result: {load_result}")
                 if load_result:
                     self.stacking_ensemble = stacking
-                    print("✅ Stacking ensemble loaded successfully and will be used for model-based risk.")
+                    print("Stacking ensemble loaded successfully and will be used for model-based risk.")
                 else:
-                    print("ℹ️ Stacking ensemble models not found; continuing without meta-learner.")
+                    print("ℹStacking ensemble models not found; continuing without meta-learner.")
             except Exception as e:
                 import traceback
-                print(f"⚠️ Could not load stacking ensemble: {e}")
-                print(f"📋 Full error: {traceback.format_exc()}")
+                print(f"Could not load stacking ensemble: {e}")
+                print(f"Full error: {traceback.format_exc()}")
         else:
-            print("⚠️ ComprehensiveStackingEnsemble is None")
+            print("ComprehensiveStackingEnsemble is None")
     
     def _fit_scaler(self, df):
         """Fit scaler on training data"""
@@ -158,33 +158,33 @@ class CardiovascularRiskCalculator:
     def get_user_input(self):
         """Get cardiovascular health data from user"""
         print("\n" + "="*60)
-        print("🏥 CARDIOVASCULAR RISK ASSESSMENT")
+        print("CARDIOVASCULAR RISK ASSESSMENT")
         print("="*60)
         print("Please provide the following health information:")
         print()
         
         # Basic information
-        age = int(input("📊 Age (years): "))
-        gender = int(input("👤 Gender (1 = Female, 2 = Male): "))
-        height = float(input("📏 Height (cm): "))
-        weight = float(input("⚖️ Weight (kg): "))
+        age = int(input("Age (years): "))
+        gender = int(input("Gender (1 = Female, 2 = Male): "))
+        height = float(input("Height (cm): "))
+        weight = float(input("Weight (kg): "))
         
         # Blood pressure
-        ap_hi = int(input("🩸 Systolic Blood Pressure (mmHg): "))
-        ap_lo = int(input("🩸 Diastolic Blood Pressure (mmHg): "))
+        ap_hi = int(input("Systolic Blood Pressure (mmHg): "))
+        ap_lo = int(input("Diastolic Blood Pressure (mmHg): "))
         
         # Health markers
-        cholesterol = int(input("🩺 Cholesterol (1 = Normal, 2 = Above Normal, 3 = Well Above Normal): "))
-        gluc = int(input("🩺 Glucose (1 = Normal, 2 = Above Normal, 3 = Well Above Normal): "))
+        cholesterol = int(input("Cholesterol (1 = Normal, 2 = Above Normal, 3 = Well Above Normal): "))
+        gluc = int(input("Glucose (1 = Normal, 2 = Above Normal, 3 = Well Above Normal): "))
         
         # Lifestyle factors
-        smoke = int(input("🚬 Smoking (0 = No, 1 = Yes): "))
-        alco = int(input("🍺 Alcohol Intake (0 = No, 1 = Yes): "))
-        active = int(input("🏃 Physical Activity (0 = No, 1 = Yes): "))
+        smoke = int(input("Smoking (0 = No, 1 = Yes): "))
+        alco = int(input("Alcohol Intake (0 = No, 1 = Yes): "))
+        active = int(input("Physical Activity (0 = No, 1 = Yes): "))
         
         # Calculate BMI
         bmi = self.calculate_bmi(height, weight)
-        print(f"📊 Calculated BMI: {bmi}")
+        print(f"Calculated BMI: {bmi}")
         
         return {
             'age': age,
@@ -204,7 +204,7 @@ class CardiovascularRiskCalculator:
     def calculate_risk_score(self, user_data, verbose=True):
         """Calculate cardiovascular risk score (0-100%)"""
         if verbose:
-            print("\n🔬 Analyzing cardiovascular risk...")
+            print("\nAnalyzing cardiovascular risk...")
         
         # Ensure BMI and active flags are present/consistent in user_data
         if 'bmi' not in user_data or user_data.get('bmi') is None:
@@ -373,62 +373,62 @@ class CardiovascularRiskCalculator:
             # gracefully fall back to rule-based/statistical components.
             return None
         except Exception as e:
-            print(f"⚠️ Model risk calculation error: {e}")
+            print(f"Model risk calculation error: {e}")
             return None
     
     def get_risk_category(self, risk_score):
         """Get risk category based on score"""
         if risk_score < 20:
-            return "🟢 LOW RISK", "Your cardiovascular risk is low. Maintain healthy lifestyle!"
+            return "LOW RISK", "Your cardiovascular risk is low. Maintain healthy lifestyle!"
         elif risk_score < 40:
-            return "🟡 MODERATE RISK", "Your cardiovascular risk is moderate. Consider lifestyle changes."
+            return "MODERATE RISK", "Your cardiovascular risk is moderate. Consider lifestyle changes."
         elif risk_score < 60:
-            return "🟠 HIGH RISK", "Your cardiovascular risk is high. Consult a healthcare provider."
+            return "HIGH RISK", "Your cardiovascular risk is high. Consult a healthcare provider."
         else:
-            return "🔴 VERY HIGH RISK", "Your cardiovascular risk is very high. Seek immediate medical attention."
+            return "VERY HIGH RISK", "Your cardiovascular risk is very high. Seek immediate medical attention."
     
     def generate_recommendations(self, user_data, risk_score):
         """Generate personalized recommendations"""
         recommendations = []
         
         if user_data['bmi'] >= 25:
-            recommendations.append("📉 Consider weight management through diet and exercise")
+            recommendations.append("Consider weight management through diet and exercise")
         
         if user_data['ap_hi'] >= 140 or user_data['ap_lo'] >= 90:
-            recommendations.append("🩺 Monitor blood pressure regularly and consider lifestyle changes")
+            recommendations.append("Monitor blood pressure regularly and consider lifestyle changes")
         
         if user_data['smoke'] == 1:
-            recommendations.append("🚭 Quit smoking - this is the most important change you can make")
+            recommendations.append("Quit smoking - this is the most important change you can make")
         
         if user_data['active'] == 0:
-            recommendations.append("🏃 Start regular physical activity (150 minutes/week)")
+            recommendations.append("Start regular physical activity (150 minutes/week)")
         
         if user_data['cholesterol'] >= 2:
-            recommendations.append("🥗 Adopt a heart-healthy diet low in saturated fats")
+            recommendations.append("Adopt a heart-healthy diet low in saturated fats")
         
         if user_data['gluc'] >= 2:
-            recommendations.append("🍎 Monitor blood sugar and consider dietary changes")
+            recommendations.append("Monitor blood sugar and consider dietary changes")
         
         if risk_score >= 40:
-            recommendations.append("👨‍⚕️ Schedule regular check-ups with your healthcare provider")
+            recommendations.append("Schedule regular check-ups with your healthcare provider")
         
         return recommendations
     
     def display_results(self, user_data, risk_score, risk_category, recommendations, predicted_label=None, threshold_used=None):
         """Display comprehensive results"""
         print("\n" + "="*60)
-        print("📊 CARDIOVASCULAR RISK ASSESSMENT RESULTS")
+        print("CARDIOVASCULAR RISK ASSESSMENT RESULTS")
         print("="*60)
         
         # Risk Score Display
-        print(f"\n🎯 RISK SCORE: {risk_score}%")
-        print(f"📋 RISK CATEGORY: {risk_category[0]}")
-        print(f"💡 {risk_category[1]}")
+        print(f"\nRISK SCORE: {risk_score}%")
+        print(f"RISK CATEGORY: {risk_category[0]}")
+        print(f"{risk_category[1]}")
         if predicted_label is not None:
-            print(f"🔎 Predicted Label (threshold {threshold_used if threshold_used is not None else self.default_threshold:.3f}): {'Positive (1)' if predicted_label == 1 else 'Negative (0)'}")
+            print(f"Predicted Label (threshold {threshold_used if threshold_used is not None else self.default_threshold:.3f}): {'Positive (1)' if predicted_label == 1 else 'Negative (0)'}")
         
         # Health Summary
-        print(f"\n📋 HEALTH SUMMARY:")
+        print(f"\nHEALTH SUMMARY:")
         print(f"   Age: {user_data['age']} years")
         print(f"   Gender: {'Male' if user_data['gender'] == 2 else 'Female'}")
         print(f"   BMI: {user_data['bmi']} ({'Normal' if user_data['bmi'] < 25 else 'Overweight' if user_data['bmi'] < 30 else 'Obese'})")
@@ -440,12 +440,12 @@ class CardiovascularRiskCalculator:
         
         # Recommendations
         if recommendations:
-            print(f"\n💡 RECOMMENDATIONS:")
+            print(f"\nRECOMMENDATIONS:")
             for i, rec in enumerate(recommendations, 1):
                 print(f"   {i}. {rec}")
         
         # Disclaimer
-        print(f"\n⚠️ DISCLAIMER:")
+        print(f"\nDISCLAIMER:")
         print("   This assessment is for informational purposes only.")
         print("   It is not a substitute for professional medical advice.")
         print("   Always consult with a healthcare provider for proper diagnosis and treatment.")
@@ -464,7 +464,7 @@ def main():
     if args.eval:
         # Non-interactive evaluation mode
         from sklearn.metrics import accuracy_score, precision_recall_fscore_support, roc_auc_score, confusion_matrix
-        print("🏥 Evaluation mode: computing metrics on dataset")
+        print("Evaluation mode: computing metrics on dataset")
         # Initialize calculator (fits scaler, centroids)
         calculator = CardiovascularRiskCalculator()
         # Load dataset
@@ -532,14 +532,14 @@ def main():
             if best_youden is None or m['youden'] > best_youden['youden']:
                 best_youden = m
         # Print metrics
-        print(f"\n📏 Metrics on {len(df)} records (ROC-AUC: {auc:.4f}):")
+        print(f"\nMetrics on {len(df)} records (ROC-AUC: {auc:.4f}):")
         print(f"   At threshold {base_metrics['threshold']:.3f} -> Acc {base_metrics['accuracy']:.4f}, Prec {base_metrics['precision']:.4f}, Rec {base_metrics['recall']:.4f}, F1 {base_metrics['f1']:.4f}")
         print("   Confusion Matrix (TN, FP | FN, TP):")
         print(base_metrics['cm'])
         print(f"   Best F1 at {best_f1['threshold']:.3f} -> Acc {best_f1['accuracy']:.4f}, Prec {best_f1['precision']:.4f}, Rec {best_f1['recall']:.4f}, F1 {best_f1['f1']:.4f}")
         print(f"   Best Youden at {best_youden['threshold']:.3f} -> Acc {best_youden['accuracy']:.4f}, Prec {best_youden['precision']:.4f}, Rec {best_youden['recall']:.4f}, F1 {best_youden['f1']:.4f}")
         # Dataset-wide analysis
-        print("\n📊 Dataset analysis:")
+        print("\nDataset analysis:")
         # Class balance
         class_counts = df['cardio'].value_counts().to_dict()
         print(f"   Class balance: {class_counts}")
@@ -559,7 +559,7 @@ def main():
         return
     
     # Interactive mode
-    print("🏥 Welcome to the Cardiovascular Risk Calculator!")
+    print("Welcome to the Cardiovascular Risk Calculator!")
     print("This tool will assess your cardiovascular disease risk based on your health data.")
     
     # Initialize calculator
@@ -580,9 +580,9 @@ def main():
         calculator.display_results(user_data, risk_score, risk_category, recommendations)
         
     except KeyboardInterrupt:
-        print("\n\n👋 Thank you for using the Cardiovascular Risk Calculator!")
+        print("\n\nThank you for using the Cardiovascular Risk Calculator!")
     except Exception as e:
-        print(f"\n❌ An error occurred: {e}")
+        print(f"\nAn error occurred: {e}")
         print("Please try again or contact support.")
 
 if __name__ == "__main__":

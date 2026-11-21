@@ -56,7 +56,7 @@ class ParticleSwarmOptimizer:
             best_fitness: Best fitness score
             history: Optimization history
         """
-        print(f"🚀 Starting PSO Hyperparameter Optimization...")
+        print(f"Starting PSO Hyperparameter Optimization...")
         print(f"   Particles: {self.n_particles}")
         print(f"   Iterations: {self.n_iterations}")
         print(f"   Parameters to optimize: {list(param_bounds.keys())}")
@@ -133,7 +133,7 @@ class ParticleSwarmOptimizer:
         # Get final best parameters
         best_params = self._particle_to_params(global_best_position, param_bounds)
         
-        print(f"\n✅ PSO Optimization completed!")
+        print(f"\nPSO Optimization completed!")
         print(f"   Best fitness: {global_best_fitness:.4f}")
         print(f"   Best parameters: {best_params}")
         
@@ -340,7 +340,7 @@ def run_transformer_pso_optimization(X, y, n_particles=20, n_iterations=30):
         objective_func, transformer_bounds, X, y, cv=3
     )
     
-    print(f"\n🎯 OPTIMIZATION RESULTS:")
+    print(f"\nOPTIMIZATION RESULTS:")
     print(f"   Best fitness (validation accuracy): {best_fitness:.4f}")
     print(f"   Best hyperparameters:")
     for param, value in best_params.items():

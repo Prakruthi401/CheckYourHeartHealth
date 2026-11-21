@@ -38,7 +38,7 @@ class GAPreprocessingPipeline:
             y: Target vector
             feature_names: List of feature names
         """
-        print("🔧 Starting GA-optimized preprocessing pipeline...")
+        print("Starting GA-optimized preprocessing pipeline...")
         
         # Step 1: Data validation
         print("   - Validating data structure...")
@@ -79,7 +79,7 @@ class GAPreprocessingPipeline:
             raise ValueError("NaN values detected after preprocessing")
         
         self.is_fitted = True
-        print(f"✅ Preprocessing completed! Final shape: {X.shape}")
+        print(f"Preprocessing completed! Final shape: {X.shape}")
         print(f"   Features: {len(self.feature_names)}")
         print(f"   Samples: {len(X)}")
         

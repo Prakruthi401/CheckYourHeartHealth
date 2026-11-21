@@ -114,7 +114,7 @@ class ComprehensiveStackingEnsemble:
         self.y_train = y_train
         self.y_test = y_test
         
-        print("✓ Data preparation completed")
+        print("Data preparation completed")
         return X_train, X_test, y_train, y_test
     
     def step2_train_base_models_oof(self):
@@ -253,7 +253,7 @@ class ComprehensiveStackingEnsemble:
             avg_auc = np.mean([fold[model_name] for fold in fold_results])
             print(f"{model_name.capitalize()}: {avg_auc:.4f}")
         
-        print("✓ Base model training with OOF predictions completed")
+        print("Base model training with OOF predictions completed")
         return fold_results
     
     def step3_construct_meta_features(self):
@@ -283,7 +283,7 @@ class ComprehensiveStackingEnsemble:
         self.meta_features_train = meta_features_scaled
         self.meta_features_test = None  # Will be created in step 5
         
-        print("✓ Meta-feature dataset constructed")
+        print("Meta-feature dataset constructed")
         return meta_features_scaled
     
     def step4_train_meta_learner(self):
@@ -349,7 +349,7 @@ class ComprehensiveStackingEnsemble:
             'lr': 0.001
         }
         
-        print("✓ Meta-learner training completed")
+        print("Meta-learner training completed")
         return self.meta_learner
     
     def step5_generate_final_predictions(self):
@@ -472,7 +472,7 @@ class ComprehensiveStackingEnsemble:
             meta_logits = self.meta_learner(test_tensor)
             self.final_predictions = torch.softmax(meta_logits, dim=1)[:, 1].numpy()
         
-        print("✓ Final test predictions generated")
+        print("Final test predictions generated")
         return self.final_predictions
     
     def step6_evaluate_and_calibrate(self):
@@ -526,7 +526,7 @@ class ComprehensiveStackingEnsemble:
         print(f"  F1-Score: {final_f1:.4f}")
         print(f"  AUC: {auc:.4f}")
         
-        print("✓ Evaluation and calibration completed")
+        print("Evaluation and calibration completed")
         return self.results
     
     def step7_save_models(self):
@@ -567,7 +567,7 @@ class ComprehensiveStackingEnsemble:
         with open(os.path.join(models_dir, 'stacking_results.json'), 'w') as f:
             json.dump(self.results, f, indent=2)
         
-        print("✓ All models saved to 'final_models/' directory")
+        print("All models saved to 'final_models/' directory")
         print("Saved files:")
         print("  - final_scaler.pkl")
         print("  - final_meta_scaler.pkl") 
@@ -626,11 +626,11 @@ class ComprehensiveStackingEnsemble:
             with open(os.path.join(models_dir, 'stacking_results.json'), 'r') as f:
                 self.results = json.load(f)
 
-            print("✅ Trained models loaded successfully")
+            print("Trained models loaded successfully")
             return True
 
         except Exception as e:
-            print(f"❌ Error loading models: {e}")
+            print(f"Error loading models: {e}")
             return False
 
     def predict_single_sample(self, user_data):
@@ -793,7 +793,7 @@ class ComprehensiveStackingEnsemble:
 
     def run_complete_stacking(self, data_path=None):
         """Run the complete stacking pipeline"""
-        print("🚀 STARTING COMPREHENSIVE STACKING ENSEMBLE")
+        print("STARTING COMPREHENSIVE STACKING ENSEMBLE")
         print("=" * 80)
         
         # If no data_path is provided, use the correct path to the data file
@@ -828,13 +828,13 @@ class ComprehensiveStackingEnsemble:
             self.step7_save_models()
 
             print("\n" + "=" * 80)
-            print("🎉 COMPREHENSIVE STACKING ENSEMBLE COMPLETED SUCCESSFULLY!")
+            print("COMPREHENSIVE STACKING ENSEMBLE COMPLETED SUCCESSFULLY!")
             print("=" * 80)
 
             return self.results
 
         except Exception as e:
-            print(f"\n❌ Error in stacking pipeline: {e}")
+            print(f"\nError in stacking pipeline: {e}")
             raise
 
 def main():
