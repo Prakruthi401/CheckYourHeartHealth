@@ -207,6 +207,25 @@ def safe_log_action(admin_id, action, details=""):
 # Initialize the database
 init_database()
 
+
+def _seed_demo_users():
+    # Throwaway demo accounts so visitors can try each role. They hold no real
+    # data and are recreated automatically on a fresh database.
+    demo_users = [
+        ('patient-demo', 'DemoPatient2026!', 'Demo Patient', 'patient'),
+        ('doctor-demo', 'DemoDoctor2026!', 'Demo Doctor', 'doctor'),
+        ('admin-demo', 'DemoAdmin2026!', 'Demo Admin', 'admin'),
+    ]
+    for username, password, name, role in demo_users:
+        try:
+            if not get_user_by_username(username):
+                add_user(username, password, name, role)
+        except Exception:
+            pass
+
+
+_seed_demo_users()
+
 # Load only the model actually used by predictions. Resource-cached across reruns.
 PREDICTOR = None
 PREDICTOR_ERROR = None

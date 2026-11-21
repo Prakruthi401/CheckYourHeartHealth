@@ -6,6 +6,12 @@ A Streamlit app that estimates heart disease risk from basic health data. I buil
 
 It is a learning project. Don't use it to make real health decisions.
 
+Demo logins (throwaway accounts, recreated automatically, nothing real in them):
+
+- Patient: `patient-demo` / `DemoPatient2026!`
+- Doctor: `doctor-demo` / `DemoDoctor2026!`
+- Admin: `admin-demo` / `DemoAdmin2026!`
+
 ![Screen recording of the app in use](assets/heart-app-demo.gif)
 
 ## What actually works
