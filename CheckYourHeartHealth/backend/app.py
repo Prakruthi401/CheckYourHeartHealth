@@ -964,7 +964,7 @@ def _render_explainability_trend(rows):
 
 
 def _generate_patient_pdf_report(patient_name, chart_df, explain_rows, patient_data=None, risk_score=None, risk_category=None):
-    """Generate a professional hospital-style PDF report for cardiovascular assessment.
+    """Generate a research-demo PDF with the same score band as the app.
     
     Args:
         patient_name: Patient's full name
@@ -990,11 +990,13 @@ def _generate_patient_pdf_report(patient_name, chart_df, explain_rows, patient_d
         fig = plt.figure(figsize=(8.27, 11.69))  # A4 size
         ax = fig.add_subplot(111)
         ax.axis('off')
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
         
         # Title
         ax.text(0.5, 0.92, 'CHECKYOURHEARTHEALTH', 
                 ha='center', va='top', fontsize=24, fontweight='bold', color='#2C3E50')
-        ax.text(0.5, 0.88, 'CARDIOVASCULAR ASSESSMENT REPORT', 
+        ax.text(0.5, 0.88, 'CARDIOVASCULAR RESEARCH DEMO',
                 ha='center', va='top', fontsize=16, color='#34495E')
         
         # Report ID and Date
@@ -1010,7 +1012,7 @@ def _generate_patient_pdf_report(patient_name, chart_df, explain_rows, patient_d
         patient_info = [
             ['Patient Name:', patient_name],
             ['Age:', patient_data.get('age', 'N/A') if patient_data else 'N/A'],
-            ['Gender:', patient_data.get('gender', 'N/A') if patient_data else 'N/A'],
+            ['Gender:', {1: 'Female', 2: 'Male', '1': 'Female', '2': 'Male'}.get(patient_data.get('gender'), patient_data.get('gender', 'N/A')) if patient_data else 'N/A'],
             ['Patient ID:', patient_data.get('user_id', 'N/A') if patient_data else 'N/A'],
             ['Assessment Date:', report_date],
             ['Doctor Assigned:', patient_data.get('doctor_name', 'Not Assigned') if patient_data else 'Not Assigned']
@@ -1023,9 +1025,9 @@ def _generate_patient_pdf_report(patient_name, chart_df, explain_rows, patient_d
             y_pos -= 0.03
         
         # Confidentiality Notice
-        ax.text(0.5, 0.08, 'CONFIDENTIAL MEDICAL REPORT', 
+        ax.text(0.5, 0.08, 'RESEARCH DEMO - NOT FOR CARE DECISIONS',
                 ha='center', fontsize=9, color='#E74C3C', fontweight='bold')
-        ax.text(0.5, 0.05, 'This report contains sensitive medical information and should be handled accordingly.', 
+        ax.text(0.5, 0.05, 'Use fictional data only. This output is uncalibrated and is not a diagnosis.',
                 ha='center', fontsize=8, color='#7F8C8D', style='italic')
         
         pdf.savefig(fig, bbox_inches='tight')
@@ -1037,37 +1039,36 @@ def _generate_patient_pdf_report(patient_name, chart_df, explain_rows, patient_d
         fig = plt.figure(figsize=(8.27, 11.69))
         ax = fig.add_subplot(111)
         ax.axis('off')
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
         
         ax.text(0.5, 0.95, 'EXECUTIVE SUMMARY', 
                 ha='center', fontsize=16, fontweight='bold', color='#2C3E50')
         
         # Current Risk Score (Large Display)
         current_risk = risk_score if risk_score is not None else (chart_df['risk_score'].iloc[-1] if not chart_df.empty else 0)
-        risk_cat = risk_category if risk_category else ('High Risk' if current_risk >= 40 else 'Low Risk')
+        risk_cat, _ = _determine_risk_category(current_risk)
         
         # Risk box
-        risk_color = '#E74C3C' if current_risk >= 40 else '#F39C12' if current_risk >= 25 else '#27AE60'
+        risk_color = '#E74C3C' if current_risk >= 40 else '#27AE60'
         ax.add_patch(plt.Rectangle((0.25, 0.82), 0.5, 0.08, 
                                    facecolor=risk_color, alpha=0.2, edgecolor=risk_color, linewidth=2))
         ax.text(0.5, 0.88, f'{current_risk:.1f}%', 
                 ha='center', va='center', fontsize=36, fontweight='bold', color=risk_color)
-        ax.text(0.5, 0.78, risk_cat.upper(), 
+        ax.text(0.5, 0.78, (risk_cat + ' (demo band)').upper(),
                 ha='center', fontsize=14, fontweight='bold', color=risk_color)
         
-        # Interpretation
-        ax.text(0.1, 0.72, 'Clinical Interpretation:', fontsize=11, fontweight='bold', color='#2C3E50')
-        
-        if current_risk >= 40:
-            interpretation = "This assessment indicates HIGH cardiovascular risk. Immediate medical consultation\nis recommended. Multiple risk factors require urgent attention and lifestyle modifications."
-        elif current_risk >= 25:
-            interpretation = "This assessment indicates MODERATE cardiovascular risk. Regular monitoring and\nlifestyle improvements are advised. Consult with your healthcare provider."
-        else:
-            interpretation = "This assessment indicates LOW cardiovascular risk. Continue maintaining healthy\nhabits and schedule routine check-ups with your healthcare provider."
-        
+        # Use the app's band, not a separate clinical interpretation.
+        ax.text(0.1, 0.72, 'Research output:', fontsize=11, fontweight='bold', color='#2C3E50')
+        interpretation = (
+            f"{risk_cat} is the app's displayed demo band for this score.\n"
+            "This uncalibrated research output is not a personal probability of disease.\n"
+            "It must not guide diagnosis, treatment, or emergency decisions."
+        )
         ax.text(0.12, 0.68, interpretation, fontsize=9, color='#34495E', verticalalignment='top')
         
         # Top Risk Contributors
-        ax.text(0.1, 0.58, 'Top Risk Contributors:', fontsize=11, fontweight='bold', color='#2C3E50')
+        ax.text(0.1, 0.58, 'General input context (hand-written rules):', fontsize=11, fontweight='bold', color='#2C3E50')
         
         y_pos = 0.54
         if patient_data:
@@ -1097,13 +1098,15 @@ def _generate_patient_pdf_report(patient_name, chart_df, explain_rows, patient_d
         fig = plt.figure(figsize=(8.27, 11.69))
         ax = fig.add_subplot(111)
         ax.axis('off')
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
         
-        ax.text(0.5, 0.95, 'PATIENT CLINICAL & LIFESTYLE DATA', 
+        ax.text(0.5, 0.95, 'RECORDED INPUTS & LIFESTYLE DATA',
                 ha='center', fontsize=14, fontweight='bold', color='#2C3E50')
         
         if patient_data:
             # Vitals Table
-            ax.text(0.1, 0.90, 'A. VITALS AND CLINICAL PARAMETERS', 
+            ax.text(0.1, 0.90, 'A. RECORDED MEASUREMENTS',
                     fontsize=11, fontweight='bold', color='#2C3E50')
             
             vitals_data = [
@@ -1211,6 +1214,8 @@ def _generate_patient_pdf_report(patient_name, chart_df, explain_rows, patient_d
                     fig = plt.figure(figsize=(8.27, 11.69))
                     ax = fig.add_subplot(111)
                     ax.axis('off')
+                    ax.set_xlim(0, 1)
+                    ax.set_ylim(0, 1)
                     
                     ax.text(0.5, 0.95, 'ECG ASSESSMENTS', 
                             ha='center', fontsize=14, fontweight='bold', color='#2C3E50')
@@ -1232,9 +1237,9 @@ def _generate_patient_pdf_report(patient_name, chart_df, explain_rows, patient_d
                         # Add details
                         ax.text(0.12, y_pos, f'Date/Time: {formatted_ts}', fontsize=9, color='#34495E')
                         y_pos -= 0.025
-                        ax.text(0.12, y_pos, f'Diagnosis: {predicted_label}', fontsize=9, color='#34495E')
+                        ax.text(0.12, y_pos, f'Model output: {predicted_label}', fontsize=9, color='#34495E')
                         y_pos -= 0.025
-                        ax.text(0.12, y_pos, f'Confidence: {float(confidence)*100:.1f}%', fontsize=9, color='#34495E')
+                        ax.text(0.12, y_pos, f'Top model score: {float(confidence):.4f} (not certainty)', fontsize=9, color='#34495E')
                         y_pos -= 0.035
                         
                         # Add a separator line
@@ -1248,6 +1253,8 @@ def _generate_patient_pdf_report(patient_name, chart_df, explain_rows, patient_d
                             fig = plt.figure(figsize=(8.27, 11.69))
                             ax = fig.add_subplot(111)
                             ax.axis('off')
+                            ax.set_xlim(0, 1)
+                            ax.set_ylim(0, 1)
                             y_pos = 0.95
                     
                     pdf.savefig(fig, bbox_inches='tight')
@@ -1262,13 +1269,20 @@ def _generate_patient_pdf_report(patient_name, chart_df, explain_rows, patient_d
         fig = plt.figure(figsize=(8.27, 11.69))
         ax = fig.add_subplot(111)
         ax.axis('off')
+        ax.set_xlim(0, 1)
+        ax.set_ylim(0, 1)
         
-        ax.text(0.5, 0.95, 'PERSONALIZED CLINICAL RECOMMENDATIONS', 
+        ax.text(0.5, 0.95, 'RESEARCH LIMITS & GENERAL HEALTH CONTEXT',
                 ha='center', fontsize=14, fontweight='bold', color='#2C3E50')
         
         # AI Explainability Summary
-        ax.text(0.1, 0.90, 'AI MODEL EXPLANATION', fontsize=11, fontweight='bold', color='#2C3E50')
-        ai_explanation = f"""The cardiovascular risk prediction model analyzed {len(patient_data) if patient_data else 0} clinical and lifestyle \nparameters to generate this {current_risk:.1f}% risk score. The model uses advanced machine learning \nalgorithms trained on cardiovascular health data to identify patterns associated with heart disease risk. \nKey contributing factors include blood pressure readings, cholesterol levels, lifestyle habits, and \nphysical activity patterns."""
+        ax.text(0.1, 0.90, 'ABOUT THIS OUTPUT', fontsize=11, fontweight='bold', color='#2C3E50')
+        ai_explanation = (
+            "The percentage shown is a model output, not a validated personal prognosis.\n"
+            "The demo bands use the same cutoff as the app and are not clinical thresholds.\n"
+            "Per-factor effects and treatment benefits have not been measured.\n"
+            "ECG scores are independent sigmoid outputs, not diagnostic confidence."
+        )
         ax.text(0.12, 0.87, ai_explanation, fontsize=8, color='#34495E', verticalalignment='top')
         
         # Lifestyle Recommendations
@@ -1293,12 +1307,12 @@ def _generate_patient_pdf_report(patient_name, chart_df, explain_rows, patient_d
         
         # Medical Recommendations
         y_pos -= 0.02
-        ax.text(0.1, y_pos, 'MEDICAL RECOMMENDATIONS', fontsize=11, fontweight='bold', color='#2C3E50')
+        ax.text(0.1, y_pos, 'GENERAL CARE CONTEXT', fontsize=11, fontweight='bold', color='#2C3E50')
         
         medical_recs = [
             "• Schedule regular check-ups with your primary care physician",
-            "• Discuss this report with your healthcare provider",
-            "• Consider cardiology consultation if risk score is elevated",
+            "• Do not use this demo report to make care decisions",
+            "• A qualified clinician, not this score, should assess symptoms",
             "• Follow prescribed medication regimens as directed",
             "• Monitor and manage chronic conditions (diabetes, hypertension)",
             "• Conduct periodic lipid panel and metabolic screening"
@@ -1311,11 +1325,11 @@ def _generate_patient_pdf_report(patient_name, chart_df, explain_rows, patient_d
         
         # Footer
         ax.plot([0.1, 0.9], [0.12, 0.12], 'k-', linewidth=0.5)
-        ax.text(0.5, 0.09, 'CONFIDENTIAL MEDICAL REPORT', 
+        ax.text(0.5, 0.09, 'RESEARCH DEMO - NOT FOR CARE DECISIONS',
                 ha='center', fontsize=9, color='#E74C3C', fontweight='bold')
         ax.text(0.5, 0.06, f'Generated by CheckYourHeartHealth System | Report ID: {report_id}', 
                 ha='center', fontsize=8, color='#7F8C8D')
-        ax.text(0.5, 0.03, 'This report is for informational purposes only and does not replace professional medical advice.', 
+        ax.text(0.5, 0.03, 'Research demo only. Not for diagnosis, treatment, or emergency decisions.',
                 ha='center', fontsize=7, color='#95A5A6', style='italic')
         
         pdf.savefig(fig, bbox_inches='tight')
