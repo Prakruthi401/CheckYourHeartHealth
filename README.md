@@ -1,6 +1,7 @@
+**Live app:** https://checkyourhearthealth-ipgklkpqymkmdsknnxovb2.streamlit.app/
+
 # CheckYourHeartHealth
 
-**Live app:** https://checkyourhearthealth-ipgklkpqymkmdsknnxovb2.streamlit.app/
 
 A Streamlit app that estimates heart disease risk from basic health data. I built it as a student project, in a rush, and the first version made some things look like they worked when they didn't. This README is the honest version after going back through the code.
 
@@ -90,3 +91,5 @@ Public signup creates a patient account only. Passwords need at least 12 charact
 Doctors can assess only linked patients, and the result is saved to that patient's ID. Patient self-linking and administrator-managed links are available. ECG model scores are kept separate from tabular risk trends and do not trigger critical-finding alerts. The application's other score alerts are demo rules, not medical warnings.
 
 Use fictional information only. This is not a production clinical system: it lacks independently reviewed security, persistent hosted storage, verified clinician identities, and clinical validation. The login throttle is session-local, not a distributed defense. SQLite history survives local restarts, but Streamlit Community Cloud disk is not durable and can reset on redeploy/reboot. Real patient history requires an external database and a separate privacy/security design.
+
+The demo uses the throwaway patient login and fictional default measurements. It is not medical advice.
